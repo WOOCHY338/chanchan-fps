@@ -1190,7 +1190,7 @@ knifeModel.scale.setScalar(0.88);   // matches the knife-to-hand proportion in t
 knifeRoot.add(knifeModel);
 const KNIFE_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 const _fzAxis = new THREE.Vector3(0, 0, 1);
-const KNIFE_CATCH_BLEND = 0.12;
+const KNIFE_CATCH_BLEND = 0.12, KNIFE_RELEASE_BLEND = 0.05;
 const _gripQ = new THREE.Quaternion();
 const _pivotTmp = new THREE.Vector3();
 const _fxAxis = new THREE.Vector3(1, 0, 0), _tiltQ = new THREE.Quaternion();
@@ -1469,7 +1469,7 @@ KNIFE_ANIMS.inspect.isInspect = true;
 const csAt = (fx, fy, d = 0.5) => [(fx - 0.5) / 0.5625 + 0.5, fy, d];
 const KR_IDLE = { at: csAt(0.64, 0.81), r: [0, -0.15, 1.37] };   // fist low right, claw curling up to the right
 const KR_PALM = [-0.35, 0.45, 0.2];
-const KR_THRUST = [-2.3, -0.8, 2.2];   // palm down, back of the glove up, blade pointing into the screen
+const KR_THRUST = [-1.24, -0.54, 2.48];   // palm down, back of the glove up, blade curling up to the crosshair
 const KR_HANG = [2.25, -0.15, 3.1];     // fist upright, fingers to the camera, blade hanging down-left
 // free-knife key: hand at h (CS fractions), ring slightly up-left of the hand
 const fk = (t, h, ka, kt = 0, extra = {}) => ({ t, at: csAt(h[0], h[1], extra.d || 0.5), r: extra.r || KR_PALM, open: true,
@@ -1544,27 +1544,42 @@ const KARAMBIT_ANIMS = {
   // punches into the screen center with the blade arcing over the top and holds, pulls back upright to the
   // left-center with the blade hanging down, then opens and spins the knife once clockwise on the finger
   // while returning to the right
-  heavy: { dur: 1.4, hitAt: 0.17, ease: 'linear', pivotRing: true, range: KNIFE.heavyRange, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
-    streak: { from: [(0.74 - 0.5) / 0.5625 + 0.5, 0.3], to: [(0.53 - 0.5) / 0.5625 + 0.5, 0.64], d: 0.6, width: 0.03 },
+  heavy: { dur: 1.4, hitAt: 0.17, ease: 'spline', pivotRing: true, range: KNIFE.heavyRange, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
+    streak: { from: [(0.74 - 0.5) / 0.5625 + 0.5, 0.3], to: [0.5, 0.5], d: 0.6, width: 0.03 },
     keys: [{ t: 0, ...KR_IDLE },
       { t: 0.1, at: csAt(0.675, 0.92), r: KR_THRUST },
-      { t: 0.17, at: csAt(0.525, 0.66, 0.62), r: KR_THRUST },
-      { t: 0.4, at: csAt(0.52, 0.67, 0.6), r: [-2.25, -0.8, 2.15] },
-      { t: 0.48, at: csAt(0.53, 0.66, 0.58), r: KR_THRUST },
-      { t: 0.56, at: csAt(0.425, 0.78), r: KR_HANG },
+      // fist just below-right of center so the blade tip lands exactly on the crosshair
+      { t: 0.17, at: csAt(0.553, 0.633, 0.6), r: KR_THRUST },
+      { t: 0.4, at: csAt(0.55, 0.64, 0.6), r: [-1.22, -0.54, 2.45] },
+      { t: 0.46, at: csAt(0.556, 0.636, 0.59), r: KR_THRUST },
+      // the wrist turns ~170° from palm-down to upright: two in-between angles (quaternion slerp) keep it one smooth roll
+      { t: 0.5, at: csAt(0.52, 0.68, 0.56), r: [-2.18, -0.21, 2.5] },
+      { t: 0.54, at: csAt(0.465, 0.73, 0.52), r: [-3.09, -0.03, 2.78] },
+      { t: 0.59, at: csAt(0.425, 0.78), r: KR_HANG },
       { t: 0.66, at: csAt(0.39, 0.78), r: KR_HANG },
       { t: 0.76, at: csAt(0.41, 0.8), r: KR_HANG },
       { t: 0.86, at: csAt(0.35, 0.88), r: KR_HANG },
       { t: 0.96, at: csAt(0.4, 0.88), r: KR_HANG },
-      fk(1.0, [0.45, 0.82], -0.6),
-      fk(1.04, [0.55, 0.65], -Math.PI / 2),
-      fk(1.09, [0.62, 0.58], -Math.PI),
-      fk(1.14, [0.69, 0.5], -5 * Math.PI / 4),
-      fk(1.24, [0.675, 0.72], -7 * Math.PI / 4),
+      // the hand keeps the fist's angle while it lets go, and only turns to the open palm once the knife is spinning
+      // flipped toward the camera (kt = π, blade at screen angle -ka): that starts it at the angle it had in the fist
+      fk(1.0, [0.45, 0.82], -2.61, Math.PI, { r: KR_HANG }),
+      fk(1.04, [0.55, 0.65], -Math.PI / 2, Math.PI, { r: KR_HANG }),
+      fk(1.09, [0.62, 0.58], 0, Math.PI, { r: [2.14, 1.24, -2.63] }),
+      fk(1.14, [0.69, 0.5], Math.PI / 4, Math.PI),
+      fk(1.24, [0.675, 0.72], 3 * Math.PI / 4, Math.PI),
       { t: 1.3, at: csAt(0.66, 0.78), r: KR_IDLE.r },
       { t: 1.4, ...KR_IDLE }] },
 };
 for (const anim of Object.values(KARAMBIT_ANIMS)) {
+  // spline keys: shift each Euler angle by whole turns to sit within π of the previous key (same rotation),
+  // so in-between frames take the short way round instead of spinning the wrist
+  if (anim.ease === 'spline') {
+    for (let i = 1; i < anim.keys.length; i++) {
+      const prev = anim.keys[i - 1].r, k = anim.keys[i];
+      if (!prev || !k.r) continue;
+      k.r = k.r.map((v, j) => v + Math.round((prev[j] - v) / (2 * Math.PI)) * 2 * Math.PI);
+    }
+  }
   for (const k of anim.keys) {
     if (k.at) k.p = refPos(...k.at);
     if (k.la) k.lp = refPos(...k.la);
@@ -1598,19 +1613,41 @@ function showStreak(s) {
 // from = the pose the hand was in when this animation started, so attacks blend in instead of snapping
 const knifeState = { anim: null, t: 0, combo: 0, hitDone: false, from: null, last: null };
 
+// ease 'spline': a curve through the keys (Hermite, tangents from the neighbouring keys), so the hand flows
+// through each key instead of stopping (smoothstep) or turning sharply (linear)
+function splineMix(k0, a, b, k3, key, def, u) {
+  const va = a[key] || def, vb = b[key] || def, dt = b.t - a.t;
+  const v0 = k0 && k0[key], v3 = k3 && k3[key];
+  const u2 = u * u, u3 = u2 * u;
+  const h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u, h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
+  return va.map((x, j) => {
+    const y = vb[j];
+    const ma = v0 ? (y - v0[j]) / (b.t - k0.t) : (y - x) / dt;
+    const mb = v3 ? (v3[j] - x) / (k3.t - a.t) : (y - x) / dt;
+    return h00 * x + h10 * dt * ma + h01 * y + h11 * dt * mb;
+  });
+}
+
 function sampleKnife(anim, t) {
   const keys = anim.keys;
   let i = 0;
   while (i < keys.length - 2 && t > keys[i + 1].t) i++;
   const a = i === 0 && knifeState.from ? { t: keys[0].t, ...knifeState.from } : keys[i], b = keys[i + 1];
   let u = Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)));
-  if (anim.ease !== 'linear') u = u * u * (3 - 2 * u);
-  const mix = (k, def) => (a[k] || def).map((v, j) => v + ((b[k] || def)[j] - v) * u);
+  const spline = anim.ease === 'spline';
+  if (!spline && anim.ease !== 'linear') u = u * u * (3 - 2 * u);
+  const k0 = i > 0 ? keys[i - 1] : null, k3 = keys[i + 2] || null;
+  const mix = spline ? (k, def) => splineMix(k0, a, b, k3, k, def, u)
+    : (k, def) => (a[k] || def).map((v, j) => v + ((b[k] || def)[j] - v) * u);
   const pose = { p: mix('p'), r: mix('r'), lp: mix('lp', LH_REST), open: !!a.open, pivotRing: !!anim.pivotRing };
   if (a.kp && b.kp) {           // knife in the air: its own position and blade angle
     pose.kp = mix('kp');
-    pose.ka = a.ka + (b.ka - a.ka) * u;
-    pose.kt = (a.kt || 0) + ((b.kt || 0) - (a.kt || 0)) * u;
+    // neighbours only count for the spin if the knife is in the air there too
+    const air = k => k && k.kp ? { t: k.t, s: [k.ka, k.kt || 0] } : null;
+    const s = spline ? splineMix(air(k0), { t: a.t, s: [a.ka, a.kt || 0] }, { t: b.t, s: [b.ka, b.kt || 0] }, air(k3), 's', null, u)
+      : [a.ka + (b.ka - a.ka) * u, (a.kt || 0) + ((b.kt || 0) - (a.kt || 0)) * u];
+    pose.ka = s[0];
+    pose.kt = s[1];
   }
   return pose;
 }
@@ -1754,6 +1791,12 @@ function updateKnife(dt) {
   knifeFist.visible = !pose.open;
   knifeOpenHand.visible = !!pose.open;
   if (pose.kp) {
+    // just let go mid-animation (not a draw starting in the air): ease out of the grip instead of snapping
+    if (!knifeState.airQ && knifeState.t > 0.02) {
+      knifeState.relP = knifeModel.position.clone();
+      knifeState.relQ = knifeModel.quaternion.clone();
+      knifeState.relT = 0;
+    }
     // tossed: flat side to the camera, blade angle ka (0 = up, counter-clockwise positive)
     knifeModel.position.set(pose.kp[0], pose.kp[1], pose.kp[2]);
     knifeModel.quaternion.setFromAxisAngle(_fzAxis, pose.ka).multiply(KNIFE_FLIP);
@@ -1761,10 +1804,20 @@ function updateKnife(dt) {
     // ring spin: kp is the finger ring, so shift the knife so it turns around the ring instead of its grip
     const pivot = pose.pivotRing && KNIFE_SKINS[knifeSkin].pivot;
     if (pivot) knifeModel.position.sub(_pivotTmp.copy(pivot).multiplyScalar(knifeModel.scale.x).applyQuaternion(knifeModel.quaternion));
+    if (knifeState.relQ) {
+      // short: the spin is fast, and a long blend would end up slerping the long way round
+      const u = 1 - (1 - Math.min(1, knifeState.relT / KNIFE_RELEASE_BLEND)) ** 2;
+      knifeState.relT += dt;
+      _gripQ.copy(knifeModel.quaternion);
+      knifeModel.position.lerpVectors(knifeState.relP, knifeModel.position.clone(), u);
+      knifeModel.quaternion.slerpQuaternions(knifeState.relQ, _gripQ, u);
+      if (u >= 1) knifeState.relQ = null;
+    }
     knifeState.airP = knifeModel.position.clone();
     knifeState.airQ = knifeModel.quaternion.clone();
     knifeState.catchT = 0;
   } else {
+    knifeState.relQ = null;
     knifeModel.position.copy(knifeHand.position);
     knifeModel.quaternion.copy(knifeHand.quaternion).multiply(KNIFE_FLIP);
     const grip = KNIFE_SKINS[knifeSkin].grip;
