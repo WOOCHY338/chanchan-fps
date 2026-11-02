@@ -131,6 +131,16 @@ canvas { display: block; width: 100vw; height: 100vh; }
 #dead-msg { position: fixed; top: 42%; left: 50%; transform: translateX(-50%); z-index: 13; pointer-events: none;
   color: #fff; font-size: 26px; font-weight: 800; text-shadow: 2px 2px 0 rgba(0,0,0,0.6); display: none; text-align: center; }
 
+#bomb-hud { position: fixed; top: 92px; left: 50%; transform: translateX(-50%); z-index: 12; pointer-events: none; display: none;
+  color: #fff; font-weight: 800; text-align: center; text-shadow: 2px 2px 0 rgba(0,0,0,0.55); font-size: 15px; }
+#bomb-hud.show { display: block; }
+#bomb-hud .role.attack { color: #ffb37a; } #bomb-hud .role.defense { color: #9fd0ff; }
+#bomb-hint { margin-top: 4px; font-size: 14px; color: #ffe9a8; min-height: 18px; }
+#bomb-bar { width: 220px; height: 10px; margin: 6px auto 0; border: 2px solid #1a1410; border-radius: 5px; background: rgba(0,0,0,0.45); display: none; overflow: hidden; }
+#bomb-bar i { display: block; height: 100%; width: 0; background: #ffcc33; }
+#scorebar .mid.planted b { color: #ff5a4a; }
+#boom-flash { position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: 0; background: #fff3d6; }
+
 #debug-info {
   position: fixed; top: 20px; left: 20px; color: rgba(255,255,255,0.5);
   font-size: 11px; font-family: monospace; z-index: 10; pointer-events: none;
@@ -174,15 +184,23 @@ canvas { display: block; width: 100vw; height: 100vh; }
   <div class="row"><input id="name-input" class="field" maxlength="12" placeholder="닉네임"></div>
   <div class="row">
     <button class="btn" id="btn-practice">연습장</button>
+  </div>
+  <div class="row">
+    <span class="sub" style="width:64px">섬멸전</span>
     <button class="btn blue" id="btn-create-1v1">방 만들기 · 1대1</button>
-    <button class="btn red" id="btn-create-2v2">방 만들기 · 2대2</button>
+    <button class="btn blue" id="btn-create-2v2">방 만들기 · 2대2</button>
+  </div>
+  <div class="row">
+    <span class="sub" style="width:64px">폭탄전</span>
+    <button class="btn red" id="btn-bomb-1v1">방 만들기 · 1대1</button>
+    <button class="btn red" id="btn-bomb-2v2">방 만들기 · 2대2</button>
   </div>
   <div class="row">
     <input id="code-input" class="field" maxlength="4" placeholder="방 코드" style="text-transform:uppercase;width:120px">
     <button class="btn ghost" id="btn-join">참가</button>
   </div>
   <div id="menu-error"></div>
-  <div class="sub">5점 먼저 내는 팀 승리 · 서버: <span id="server-addr"></span></div>
+  <div class="sub">5점 먼저 내는 팀 승리 · 폭탄전은 매 라운드 공격/수비가 바뀌어요 · E 길게: 설치/해체</div>
 </div>
 
 <div id="lobby" class="overlay hidden">
@@ -202,6 +220,8 @@ canvas { display: block; width: 100vw; height: 100vh; }
 </div>
 
 <div id="scorebar"><span class="s blue" id="score-blue">0</span><div class="mid"><b id="round-timer">1:40</b><span id="round-label">ROUND 1</span></div><span class="s red" id="score-red">0</span></div>
+<div id="bomb-hud"><span class="role" id="bomb-role"></span><div id="bomb-hint"></div><div id="bomb-bar"><i id="bomb-fill"></i></div></div>
+<div id="boom-flash"></div>
 <div id="banner"></div>
 <div id="feed"></div>
 <div id="hurt"></div>
@@ -319,12 +339,29 @@ const SFX = (() => {
     o.stop(t + dur + 0.02);
   }
 
+  // generated explosion: low-passed noise burst with a long tail
+  function boom(vol = 1) {
+    if (!ac) return;
+    const len = Math.floor(ac.sampleRate * 2.2);
+    const buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+    const src = ac.createBufferSource(), lp = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = buf;
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2200, ac.currentTime);
+    lp.frequency.exponentialRampToValueAtTime(120, ac.currentTime + 1.6);
+    g.gain.value = vol;
+    src.connect(lp).connect(g).connect(master);
+    src.start();
+    tone(55, 1.2, 0.5 * vol, 0, 'sine');
+  }
+
   function setVolume(v) {
     volume = v;
     if (master) master.gain.value = v;
   }
 
-  return { unlock, play, tone, setVolume, get volume() { return volume; } };
+  return { unlock, play, tone, boom, setVolume, get volume() { return volume; } };
 })();
 
 const sfx = {
@@ -642,18 +679,7 @@ function addObstacle(x, y, z, sx, sy, sz, color) {
   });
 }
 
-addObstacle(6, 1.5, 6, 2.5, 3, 2.5, 0xd4a574);
-addObstacle(-5, 1, 9, 3, 2, 1.5, 0xb8a9c9);
-addObstacle(10, 2, -4, 1.5, 4, 1.5, 0xa3c4bc);
-addObstacle(-8, 0.75, -7, 4, 1.5, 2.5, 0xd4c5a0);
-addObstacle(0, 0.5, -10, 8, 1, 1.5, 0xc9b8a8);
-addObstacle(-12, 1.25, 3, 2, 2.5, 3, 0xb5c9a8);
-addObstacle(14, 1, 10, 2, 2, 2, 0xd4b8a0);
-addObstacle(-3, 2.5, 4, 1.5, 5, 1.5, 0xa8b8d4);
-// character-height wall in front of the blue spawn (z = -24): hides both spawns while standing (eye 1.6 m)
-addObstacle(0, 1, -19, 14, 2, 1, 0x8fa3c4);
-
-// ramp
+// ramp (arena only)
 const rampGeo = new THREE.BoxGeometry(4, 0.3, 6);
 const rampMesh = new THREE.Mesh(rampGeo, paperMaterial(0xccc0a0));
 rampMesh.position.set(5, 0.8, -8);
@@ -661,6 +687,69 @@ rampMesh.rotation.x = -0.25;
 rampMesh.castShadow = true;
 rampMesh.receiveShadow = true;
 scene.add(rampMesh);
+
+// ── MAPS ── boxes: [x, y, z, sx, sy, sz, color]. bound: how far the player may walk from the center.
+const BOMB_SITE = { x: 7, z: 12, hw: 5, hd: 5 };   // 폭탄전 A site (centre + half size)
+const MAPS = {
+  arena: {
+    ramp: true, bound: [29, 29],
+    boxes: [
+      [6, 1.5, 6, 2.5, 3, 2.5, 0xd4a574], [-5, 1, 9, 3, 2, 1.5, 0xb8a9c9], [10, 2, -4, 1.5, 4, 1.5, 0xa3c4bc],
+      [-8, 0.75, -7, 4, 1.5, 2.5, 0xd4c5a0], [0, 0.5, -10, 8, 1, 1.5, 0xc9b8a8], [-12, 1.25, 3, 2, 2.5, 3, 0xb5c9a8],
+      [14, 1, 10, 2, 2, 2, 0xd4b8a0], [-3, 2.5, 4, 1.5, 5, 1.5, 0xa8b8d4],
+      // character-height wall in front of the blue spawn (z = -24): hides both spawns while standing (eye 1.6 m)
+      [0, 1, -19, 14, 2, 1, 0x8fa3c4],
+    ],
+  },
+  // small Wingman-style map: attackers spawn south, defenders north-west, one bomb site (A) north-east.
+  // A big block in the middle splits it into a left lane and a right lane.
+  wingman: {
+    ramp: false, bound: [13.5, 21.5],
+    boxes: [
+      [0, 2, 22.5, 30, 4, 1, 0xa79f8f], [0, 2, -22.5, 30, 4, 1, 0xa79f8f],          // outer walls
+      [14.5, 2, 0, 1, 4, 46, 0xb3aa98], [-14.5, 2, 0, 1, 4, 46, 0xb3aa98],
+      [-2, 2, -2, 6, 4, 14, 0xc9b39a],                                               // middle block
+      [-1, 1.25, 12, 2, 2.5, 6, 0xb8a9c9],                                           // wall west of the site
+      [0, 1, -15, 8, 2, 1, 0x8fa3c4], [-8, 1, 15, 6, 2, 1, 0x8fa3c4],                // spawn cover walls
+      [5, 0.6, 10, 1.2, 1.2, 1.2, 0xd4a574], [9.5, 0.9, 13.5, 1.8, 1.8, 1.8, 0xd4a574], // site crates
+      [6, 0.6, 15.5, 1.2, 1.2, 1.2, 0xc99a66], [11, 1.5, 8.5, 1.2, 3, 1.2, 0xa3c4bc],
+      [-9, 0.75, -6, 3, 1.5, 2, 0xd4c5a0], [-11, 1.25, 4, 2, 2.5, 2, 0xb5c9a8],     // left lane cover
+      [6, 1, -8, 2, 2, 2, 0xd4b8a0], [11, 0.75, -2, 2, 1.5, 3, 0xc9b8a8], [3, 1.25, 2, 1.5, 2.5, 1.5, 0xa8b8d4], // right lane
+    ],
+  },
+};
+let currentMap = 'arena';
+
+// site floor marking: tinted square with a big paper "A"
+const siteMarker = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(230,120,60,0.35)'; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = 'rgba(160,60,20,0.9)'; g.lineWidth = 10; g.strokeRect(5, 5, 246, 246);
+  g.fillStyle = 'rgba(150,50,20,0.85)'; g.font = 'bold 170px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('A', 128, 140);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(BOMB_SITE.hw * 2, BOMB_SITE.hd * 2),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+  m.rotation.set(-Math.PI / 2, 0, Math.PI);   // the "A" reads upright for attackers coming from the south
+  m.position.set(BOMB_SITE.x, 0.02, BOMB_SITE.z);
+  m.visible = false;
+  scene.add(m);
+  return m;
+})();
+
+function loadMap(name) {
+  if (!MAPS[name]) return;
+  for (const o of obstacles) { scene.remove(o.mesh); o.mesh.geometry.dispose(); }
+  obstacles.length = 0;
+  for (const b of MAPS[name].boxes) addObstacle(...b);
+  rampMesh.visible = MAPS[name].ramp;
+  siteMarker.visible = name === 'wingman';
+  currentMap = name;
+}
+loadMap('arena');
+// meshes that block movement, bullets and sight (a hidden ramp must not count: raycasts ignore visibility)
+const mapMeshes = () => [floor, ...(rampMesh.visible ? [rampMesh] : []), ...obstacles.map(o => o.mesh)];
 
 // ── PLAYER ──
 const playerGroup = new THREE.Group();
@@ -906,7 +995,7 @@ gun.add(muzzleFlash);
 let flashTimer = 0;
 
 const shootRay = new THREE.Raycaster();
-const worldMeshes = () => [floor, rampMesh, ...obstacles.map(o => o.mesh)];
+const worldMeshes = () => mapMeshes();
 
 const decals = [];
 const decalGeo = new THREE.CircleGeometry(0.03, 8);
@@ -1845,7 +1934,7 @@ const raycaster = new THREE.Raycaster();
 
 function getGroundHeight(x, z) {
   raycaster.set(new THREE.Vector3(x, 50, z), new THREE.Vector3(0, -1, 0));
-  const meshes = [floor, rampMesh, ...obstacles.map(o => o.mesh)];
+  const meshes = mapMeshes();
   const hits = raycaster.intersectObjects(meshes);
   if (hits.length > 0) return hits[0].point.y;
   return 0;
@@ -1875,7 +1964,7 @@ function cameraCollisionCheck(from, to, maxDist) {
   const dir = to.clone().sub(from).normalize();
   raycaster.set(from, dir);
   raycaster.far = maxDist;
-  const meshes = [floor, rampMesh, ...obstacles.map(o => o.mesh)];
+  const meshes = mapMeshes();
   const hits = raycaster.intersectObjects(meshes);
   if (hits.length > 0 && hits[0].distance < maxDist) {
     return hits[0].distance - CONFIG.cameraCollisionRadius;
@@ -2024,8 +2113,9 @@ function update(dt) {
   player.position = checkAABBCollision(player.position, player.radius);
 
   // ── Boundary ──
-  player.position.x = Math.max(-29, Math.min(29, player.position.x));
-  player.position.z = Math.max(-29, Math.min(29, player.position.z));
+  const [bx, bz] = MAPS[currentMap].bound;
+  player.position.x = Math.max(-bx, Math.min(bx, player.position.x));
+  player.position.z = Math.max(-bz, Math.min(bz, player.position.z));
 
   // ── Update player visual ──
   playerGroup.position.copy(player.position);
@@ -2161,7 +2251,6 @@ camera.position.set(0, 1.6, 0);   // menu backdrop: stand in the arena instead o
 camera.lookAt(0, 1.6, 10);
 const $ = id => document.getElementById(id);
 const menuEl = $('menu'), lobbyEl = $('lobby');
-$('server-addr').textContent = location.host || '(로컬 파일)';
 try { $('name-input').value = localStorage.getItem('playerName') || ''; } catch (e) { /* storage blocked */ }
 
 function playerName() {
@@ -2182,31 +2271,57 @@ const SPAWNS = {
   blue: [[-3, -24, 0], [3, -24, 0]],     // [x, z, yaw°]; yaw 0 faces +z
   red: [[3, 24, 180], [-3, 24, 180]],
 };
+// 폭탄전 (Wingman-style): sides swap every round, first to 5 still wins
+const BOMB = { roundTime: 60, fuse: 35, plantTime: 3, defuseTime: 5, defuseRange: 2.2, pickupRange: 1.4 };
+const BOMB_SPAWNS = {
+  attack: [[-2, -19, 0], [2, -19, 0]],
+  defense: [[-6, 18.5, 180], [-10, 18.5, 180]],
+};
+const inSite = (x, z) => Math.abs(x - BOMB_SITE.x) <= BOMB_SITE.hw + 0.3 && Math.abs(z - BOMB_SITE.z) <= BOMB_SITE.hd + 0.3;
 const makeRoomCode = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
 
 // host-side room: one room per host browser. clients: id -> send(msg)
-function createHostRoom(code, mode) {
-  const room = { code, mode, players: new Map(), host: 1, phase: 'lobby', round: 0, score: { blue: 0, red: 0 }, timer: 0, nextId: 1 };
+function createHostRoom(code, mode, type = 'elim') {
+  const room = { code, mode, type, players: new Map(), host: 1, phase: 'lobby', round: 0, score: { blue: 0, red: 0 }, timer: 0, nextId: 1,
+    attack: null, bomb: null };
+  const isBomb = type === 'bomb';
   const sendTo = (p, msg) => { try { p.send(msg); } catch (e) { /* peer gone */ } };
   const broadcast = (msg, exceptId) => { for (const p of room.players.values()) if (p.id !== exceptId) sendTo(p, msg); };
   const teamOf = team => [...room.players.values()].filter(p => p.team === team);
-  const lobbyInfo = () => ({ t: 'lobby', room: room.code, mode: room.mode, host: room.host, phase: room.phase, score: room.score,
+  const lobbyInfo = () => ({ t: 'lobby', room: room.code, mode: room.mode, type: room.type, host: room.host, phase: room.phase, score: room.score,
     players: [...room.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team })) });
 
   function startRound() {
     room.round += 1; room.phase = 'prestart'; room.timer = RULES.prestart;
+    // bomb mode: blue attacks on odd rounds, red on even rounds
+    room.attack = isBomb ? (room.round % 2 ? 'blue' : 'red') : null;
     const spawns = {};
     for (const team of ['blue', 'red']) {
+      const list = isBomb ? BOMB_SPAWNS[team === room.attack ? 'attack' : 'defense'] : SPAWNS[team];
       teamOf(team).forEach((p, i) => {
-        const s = SPAWNS[team][i % SPAWNS[team].length];
-        p.hp = 100; p.dead = false;
+        const s = list[i % list.length];
+        p.hp = 100; p.dead = false; p.act = null; p.actT = 0;
         p.state = { p: [s[0], 0, s[1]], yaw: s[2], pitch: 0, w: 'rifle' };
         spawns[p.id] = s;
       });
     }
-    broadcast({ t: 'round', phase: 'prestart', round: room.round, score: room.score, timer: room.timer, spawns });
+    if (isBomb) {
+      const atk = teamOf(room.attack);
+      room.bomb = { s: 'carried', c: atk[Math.floor(Math.random() * atk.length)].id, p: null };
+    }
+    broadcast({ t: 'round', phase: 'prestart', round: room.round, score: room.score, timer: room.timer, spawns,
+      type: room.type, map: isBomb ? 'wingman' : 'arena', attack: room.attack });
+  }
+  const defense = () => room.attack === 'blue' ? 'red' : 'blue';
+  // the carrier died or left: the bomb falls where they stood
+  function dropBomb(p) {
+    if (!room.bomb || room.bomb.s !== 'carried' || room.bomb.c !== p.id) return;
+    room.bomb = { s: 'dropped', c: null, p: [p.state.p[0], 0, p.state.p[2]] };
+    broadcast({ t: 'bomb', ev: 'drop', id: p.id });
   }
   function endRound(winner, reason) {
+    if (room.phase !== 'live') return;
+    for (const p of room.players.values()) { p.act = null; p.actT = 0; }
     if (winner) room.score[winner] += 1;
     room.phase = 'post'; room.timer = RULES.post;
     broadcast({ t: 'round', phase: 'post', round: room.round, score: room.score, winner, reason, timer: room.timer });
@@ -2219,14 +2334,62 @@ function createHostRoom(code, mode) {
   function checkRoundOver() {
     if (room.phase !== 'live') return;
     const b = teamOf('blue').filter(p => !p.dead).length, r = teamOf('red').filter(p => !p.dead).length;
+    if (isBomb) {
+      const alive = { blue: b, red: r };
+      if (alive[defense()] === 0) endRound(room.attack, 'elim');                                   // defenders dead: attack wins
+      else if (alive[room.attack] === 0 && room.bomb.s !== 'planted') endRound(defense(), 'elim');   // after the plant they must defuse
+      return;
+    }
     if (b === 0 || r === 0) endRound(b > 0 ? 'blue' : r > 0 ? 'red' : null, 'elim');
+  }
+  // plant / defuse: held on the client (E), timed here so nobody can skip the wait
+  function tickBomb(dt) {
+    const bomb = room.bomb;
+    if (bomb.s === 'dropped') {
+      for (const p of teamOf(room.attack)) {
+        if (!p.dead && Math.hypot(p.state.p[0] - bomb.p[0], p.state.p[2] - bomb.p[2]) < BOMB.pickupRange) {
+          room.bomb = { s: 'carried', c: p.id, p: null };
+          broadcast({ t: 'bomb', ev: 'pickup', id: p.id });
+          break;
+        }
+      }
+    }
+    for (const p of room.players.values()) {
+      const [x, , z] = p.state.p;
+      const ok = !p.dead && (
+        p.act === 'plant' ? p.team === room.attack && room.bomb.s === 'carried' && room.bomb.c === p.id && inSite(x, z) :
+        p.act === 'defuse' ? p.team !== room.attack && room.bomb.s === 'planted' && Math.hypot(x - room.bomb.p[0], z - room.bomb.p[2]) < BOMB.defuseRange :
+        false);
+      if (!ok) { p.actT = 0; continue; }
+      p.actT += dt;
+      if (p.act === 'plant' && p.actT >= BOMB.plantTime) {
+        room.bomb = { s: 'planted', c: null, p: [x, 0, z] };
+        room.timer = BOMB.fuse;
+        p.act = null; p.actT = 0;
+        broadcast({ t: 'bomb', ev: 'plant', id: p.id, p: room.bomb.p });
+      } else if (p.act === 'defuse' && p.actT >= BOMB.defuseTime) {
+        room.bomb.s = 'defused';
+        broadcast({ t: 'bomb', ev: 'defuse', id: p.id });
+        endRound(defense(), 'defuse');
+        return;
+      }
+    }
   }
   function tick(dt) {
     if (room.phase === 'lobby') return;
     room.timer -= dt;
     if (room.phase === 'prestart' && room.timer <= 0) {
-      room.phase = 'live'; room.timer = RULES.roundTime;
+      room.phase = 'live'; room.timer = isBomb ? BOMB.roundTime : RULES.roundTime;
       broadcast({ t: 'round', phase: 'live', round: room.round, score: room.score, timer: room.timer });
+    } else if (room.phase === 'live' && isBomb) {
+      tickBomb(dt);
+      if (room.phase === 'live' && room.timer <= 0) {
+        if (room.bomb.s === 'planted') {
+          room.bomb.s = 'exploded';
+          broadcast({ t: 'bomb', ev: 'explode', p: room.bomb.p });
+          endRound(room.attack, 'bomb');
+        } else endRound(defense(), 'time');   // no plant in time: defense wins
+      }
     } else if (room.phase === 'live' && room.timer <= 0) {
       const alive = t => teamOf(t).filter(p => !p.dead);
       const hp = t => alive(t).reduce((s, p) => s + p.hp, 0);
@@ -2236,8 +2399,8 @@ function createHostRoom(code, mode) {
       const w = room.score.blue >= RULES.winScore ? 'blue' : room.score.red >= RULES.winScore ? 'red' : null;
       if (w) endMatch(w); else startRound();
     }
-    broadcast({ t: 'snap', timer: room.timer, phase: room.phase,
-      ps: [...room.players.values()].map(p => ({ id: p.id, ...p.state, hp: p.hp, dead: p.dead })) });
+    broadcast({ t: 'snap', timer: room.timer, phase: room.phase, bomb: room.bomb,
+      ps: [...room.players.values()].map(p => ({ id: p.id, ...p.state, hp: p.hp, dead: p.dead, act: p.actT > 0 ? p.act : null })) });
   }
   function addPlayer(send) {
     const id = room.nextId++;
@@ -2245,6 +2408,8 @@ function createHostRoom(code, mode) {
     return id;
   }
   function leave(id) {
+    const gone = room.players.get(id);
+    if (gone && room.phase !== 'lobby') dropBomb(gone);
     if (!room.players.delete(id)) return;
     broadcast({ t: 'left', id });
     if (room.phase !== 'lobby') {
@@ -2286,6 +2451,8 @@ function createHostRoom(code, mode) {
       case 'state':
         if (room.phase === 'lobby' || me.dead || !Array.isArray(m.p)) return;
         me.state = { p: m.p.slice(0, 3).map(Number), yaw: +m.yaw || 0, pitch: +m.pitch || 0, w: m.w === 'knife' ? 'knife' : 'rifle', ads: !!m.ads };
+        { const act = m.act === 'plant' || m.act === 'defuse' ? m.act : null;
+          if (act !== me.act) { me.act = act; me.actT = 0; } }
         break;
       case 'shot':
         if (room.phase === 'live' && !me.dead) broadcast({ t: 'shot', id, o: m.o, e: m.e }, id);
@@ -2301,6 +2468,8 @@ function createHostRoom(code, mode) {
         broadcast({ t: 'hp', id: target.id, hp: Math.max(0, target.hp), by: id, head: !!m.head });
         if (target.hp <= 0) {
           target.dead = true;
+          target.act = null; target.actT = 0;
+          dropBomb(target);
           broadcast({ t: 'kill', killer: id, victim: target.id, head: !!m.head, w: m.w === 'knife' ? 'knife' : 'rifle' });
           checkRoundOver();
         }
@@ -2317,14 +2486,14 @@ function createHostRoom(code, mode) {
 function netError(msg) {
   if (net.mode === 'lobby') $('lobby-msg').textContent = msg; else $('menu-error').textContent = msg;
 }
-function hostRoom(mode, attempt = 0) {
+function hostRoom(mode, type, attempt = 0) {
   if (typeof Peer === 'undefined') return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
   const code = makeRoomCode();
   const peer = new Peer(PEER_PREFIX + code, { debug: 0 });
   net.peer = peer;
   $('menu-error').textContent = '방 여는 중…';
   peer.on('open', () => {
-    const room = createHostRoom(code, mode);
+    const room = createHostRoom(code, mode, type);
     net.hostRoom = room;
     // the host plays through a local loopback (async, like a real connection)
     const myId = room.addPlayer(msg => queueMicrotask(() => onNetMessage(msg)));
@@ -2341,7 +2510,7 @@ function hostRoom(mode, attempt = 0) {
     });
   });
   peer.on('error', err => {
-    if (err.type === 'unavailable-id' && attempt < 5) { peer.destroy(); return hostRoom(mode, attempt + 1); }   // code taken: pick another
+    if (err.type === 'unavailable-id' && attempt < 5) { peer.destroy(); return hostRoom(mode, type, attempt + 1); }   // code taken: pick another
     netError('방을 열 수 없어요 (' + err.type + ')');
   });
   peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });   // keep the code reachable for late joiners
@@ -2459,9 +2628,16 @@ function enterLobby() {
   $('scorebar').classList.remove('show');
   $('dead-msg').style.display = 'none';
 }
+function resetBombMode() {
+  net.type = 'elim'; net.bomb = null; net.act = null; net.attack = null;
+  bombModel.visible = false;
+  $('bomb-hud').classList.remove('show');
+  if (currentMap !== 'arena') loadMap('arena');
+}
 function leaveOnline() {
   closeTransport();
   clearRemotes();
+  resetBombMode();
   net.mode = 'menu';
   for (const d of practiceDummies) d.visible = true;
   dummies.length = 0;
@@ -2482,9 +2658,11 @@ function startOnlineMatch() {
 }
 
 $('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
-const create = mode => { SFX.unlock(); closeTransport(); $('menu-error').textContent = ''; hostRoom(mode); };
-$('btn-create-1v1').onclick = () => create('1v1');
-$('btn-create-2v2').onclick = () => create('2v2');
+const create = (mode, type) => { SFX.unlock(); closeTransport(); $('menu-error').textContent = ''; hostRoom(mode, type); };
+$('btn-create-1v1').onclick = () => create('1v1', 'elim');
+$('btn-create-2v2').onclick = () => create('2v2', 'elim');
+$('btn-bomb-1v1').onclick = () => create('1v1', 'bomb');
+$('btn-bomb-2v2').onclick = () => create('2v2', 'bomb');
 $('btn-join').onclick = () => {
   SFX.unlock();
   $('menu-error').textContent = '';
@@ -2504,7 +2682,7 @@ $('btn-to-menu').onclick = () => {
 
 function renderLobby() {
   $('lobby-code').textContent = net.room;
-  $('lobby-mode').textContent = net.roomMode === '2v2' ? '2대2' : '1대1';
+  $('lobby-mode').textContent = (net.roomType === 'bomb' ? '폭탄전 · ' : '섬멸전 · ') + (net.roomMode === '2v2' ? '2대2' : '1대1');
   for (const team of ['blue', 'red']) {
     $('lobby-' + team).innerHTML = '';
     for (const p of net.players.filter(q => q.team === team)) {
@@ -2552,7 +2730,7 @@ function onNetMessage(m) {
       if (net.mode === 'lobby') $('lobby-msg').textContent = m.msg; else $('menu-error').textContent = m.msg;
       break;
     case 'lobby':
-      net.room = m.room; net.roomMode = m.mode; net.host = m.host; net.players = m.players;
+      net.room = m.room; net.roomMode = m.mode; net.roomType = m.type || 'elim'; net.host = m.host; net.players = m.players;
       net.myTeam = (m.players.find(p => p.id === net.id) || {}).team || net.myTeam;
       if (net.mode === 'menu' || net.mode === 'lobby') enterLobby();
       if (net.mode === 'lobby') renderLobby();
@@ -2562,18 +2740,23 @@ function onNetMessage(m) {
       net.phase = m.phase; net.round = m.round; net.score = m.score; net.timer = m.timer;
       if (m.phase === 'prestart') {
         if (net.mode !== 'online') startOnlineMatch();
+        net.type = m.type || 'elim'; net.attack = m.attack || null; net.bomb = null; net.act = null;
+        boomT = 0; boomBall.visible = false;
+        if (m.map && m.map !== currentMap) loadMap(m.map);   // before spawning: ground height depends on the map
         if (m.spawns && m.spawns[net.id]) spawnLocal(m.spawns[net.id]);
         for (const r of net.remotes.values()) { r.dead = false; r.hp = 100; r.buf.length = 0; r.avatar.userData.dead = false; r.avatar.rotation.x = 0; }
-        showBanner(`ROUND ${m.round}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}</small>`, 2.5);
+        const role = net.type !== 'bomb' ? '' : net.myTeam === net.attack ? ' · 공격 — 폭탄을 A에 설치하세요' : ' · 수비 — A 사이트를 지키세요';
+        showBanner(`ROUND ${m.round}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${role}</small>`, 2.5);
       } else if (m.phase === 'live') {
         showBanner('시작!', 0.8);
       } else if (m.phase === 'post') {
         const txt = !m.winner ? '무승부' : m.winner === net.myTeam ? '라운드 승리' : '라운드 패배';
-        showBanner(`${txt}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${m.reason === 'time' ? ' · 시간 종료' : ''}</small>`, 2.8);
+        const why = { time: ' · 시간 종료', bomb: ' · 폭탄 폭발', defuse: ' · 폭탄 해체' }[m.reason] || '';
+        showBanner(`${txt}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${why}</small>`, 2.8);
       }
       break;
     case 'snap':
-      net.timer = m.timer; net.phase = m.phase;
+      net.timer = m.timer; net.phase = m.phase; net.bomb = m.bomb || null;
       for (const s of m.ps) {
         if (s.id === net.id) {
           player.hp = s.hp;
@@ -2616,6 +2799,24 @@ function onNetMessage(m) {
       if (r) r.avatar.userData.swingT = 0.35;
       break;
     }
+    case 'bomb':
+      if (m.ev === 'plant') {
+        addFeed(`${teamSpan(m.id)} 💣 폭탄 설치`);
+        showBanner('폭탄 설치됨!', 1.5);
+        SFX.tone(1200, 0.12, 0.2); SFX.tone(1600, 0.15, 0.2, 0.12);
+        bombBeepT = 0;
+      } else if (m.ev === 'defuse') {
+        addFeed(`${teamSpan(m.id)} ✂ 폭탄 해체`);
+        SFX.tone(700, 0.1, 0.2, 0, 'triangle'); SFX.tone(500, 0.2, 0.2, 0.1, 'triangle');
+      } else if (m.ev === 'drop') {
+        addFeed(`${teamSpan(m.id)} 폭탄 떨어뜨림`);
+      } else if (m.ev === 'pickup') {
+        addFeed(`${teamSpan(m.id)} 폭탄 주움`);
+        if (m.id === net.id) SFX.play('cloth1', { vol: 0.5 });
+      } else if (m.ev === 'explode') {
+        explodeBomb(m.p);
+      }
+      break;
     case 'left':
       net.players = net.players.filter(p => p.id !== m.id);
       if (net.remotes.has(m.id)) { addFeed(`${teamSpan(m.id)} 나감`); scene.remove(net.remotes.get(m.id).avatar); net.remotes.delete(m.id); syncRemotes(); }
@@ -2623,7 +2824,7 @@ function onNetMessage(m) {
     case 'end': {
       const win = m.winner === net.myTeam;
       showBanner(`${win ? '승리!' : '패배'}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}</small>`, 4);
-      setTimeout(() => { if (net.mode === 'online') { net.mode = 'lobby'; clearRemotes(); dummies.length = 0; enterLobby(); renderLobby(); } }, 4000);
+      setTimeout(() => { if (net.mode === 'online') { net.mode = 'lobby'; clearRemotes(); resetBombMode(); dummies.length = 0; enterLobby(); renderLobby(); } }, 4000);
       break;
     }
   }
@@ -2652,7 +2853,112 @@ function reportHit(dummy, dmg, head, w) {
   }
   return true;
 }
-const playerCanAct = () => net.mode !== 'online' || (net.phase === 'live' || net.phase === 'post') && !player.dead;
+// frozen during the round countdown, while dead, and while planting/defusing
+const playerCanAct = () => net.mode !== 'online' || (net.phase === 'live' || net.phase === 'post') && !player.dead && !net.act;
+
+// ── bomb: paper C4 with a blinking light, shown dropped / planted / on the carrier's back ──
+const bombModel = new THREE.Group();
+part(bombModel, 0.42, 0.16, 0.28, 0x6b5a3e, 0, 0.08, 0);
+part(bombModel, 0.2, 0.03, 0.14, 0x2e2c2a, -0.06, 0.175, 0);
+const bombLight = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), new THREE.MeshBasicMaterial({ color: 0x551111 }));
+bombLight.position.set(0.12, 0.18, 0.06);
+bombModel.add(bombLight);
+bombModel.traverse(o => { o.raycast = () => {}; });
+bombModel.visible = false;
+scene.add(bombModel);
+let bombBeepT = 0, bombBlinkT = 0;
+// explosion: growing paper fireball + white flash + boom
+const boomBall = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xff8a3a, transparent: true }));
+boomBall.visible = false;
+boomBall.raycast = () => {};
+scene.add(boomBall);
+let boomT = 0;
+function explodeBomb(p) {
+  if (Array.isArray(p)) boomBall.position.set(p[0], 0.5, p[2]);
+  boomBall.visible = true;
+  boomT = 1.4;
+  bombModel.visible = false;
+  const dist = boomBall.position.distanceTo(player.position);
+  SFX.boom(Math.max(0.35, 1 - dist / 60));
+  $('boom-flash').style.opacity = Math.max(0.25, 1 - dist / 40).toFixed(2);
+}
+// what holding E would do right now (null if nothing)
+function bombAction() {
+  const b = net.bomb;
+  if (net.type !== 'bomb' || net.phase !== 'live' || player.dead || !b) return null;
+  const attacker = net.myTeam === net.attack;
+  if (attacker && b.s === 'carried' && b.c === net.id && inSite(player.position.x, player.position.z) && player.isGrounded) return 'plant';
+  if (!attacker && b.s === 'planted' && Math.hypot(player.position.x - b.p[0], player.position.z - b.p[2]) < BOMB.defuseRange) return 'defuse';
+  return null;
+}
+function updateBomb(dt) {
+  // fireball
+  if (boomT > 0) {
+    boomT -= dt;
+    const k = 1 - boomT / 1.4;
+    boomBall.scale.setScalar(1 + 11 * Math.min(1, k * 2.5));
+    boomBall.material.opacity = Math.max(0, 1 - k) * 0.9;
+    if (boomT <= 0) boomBall.visible = false;
+  }
+  const fl = $('boom-flash');
+  if (+fl.style.opacity > 0) fl.style.opacity = Math.max(0, +fl.style.opacity - dt * 1.2).toFixed(2);
+
+  const hud = $('bomb-hud');
+  if (net.mode !== 'online' || net.type !== 'bomb') { hud.classList.remove('show'); bombModel.visible = false; net.act = null; return; }
+  hud.classList.add('show');
+  const b = net.bomb;
+  const attacker = net.myTeam === net.attack;
+  $('bomb-role').className = 'role ' + (attacker ? 'attack' : 'defense');
+  $('bomb-role').textContent = attacker ? (b && b.s === 'carried' && b.c === net.id ? '공격 · 💣 폭탄 소지' : '공격') : '수비';
+
+  // hold E
+  const can = bombAction();
+  const act = can && keys['KeyE'] ? can : null;
+  if (act !== net.act) { net.act = act; net.actT = 0; net.sendT = 0; }
+  if (net.act) {
+    net.actT += dt;
+    if (Math.floor((net.actT - dt) * 4) !== Math.floor(net.actT * 4)) SFX.tone(net.act === 'plant' ? 900 : 600, 0.04, 0.08);
+  }
+  const need = net.act === 'plant' ? BOMB.plantTime : BOMB.defuseTime;
+  $('bomb-bar').style.display = net.act ? 'block' : 'none';
+  $('bomb-fill').style.width = net.act ? Math.min(100, net.actT / need * 100).toFixed(1) + '%' : '0';
+  let hint = '';
+  if (net.act) hint = net.act === 'plant' ? '설치 중…' : '해체 중…';
+  else if (can) hint = can === 'plant' ? 'E 길게 눌러 폭탄 설치' : 'E 길게 눌러 폭탄 해체';
+  else if (b && net.phase === 'live' && !player.dead) {
+    if (b.s === 'planted') hint = attacker ? '폭탄을 지키세요' : '폭탄을 해체하세요!';
+    else if (b.s === 'dropped') hint = attacker ? '떨어진 폭탄을 주우세요' : '';
+    else if (attacker && b.c === net.id) hint = 'A 사이트로 가서 설치하세요';
+  }
+  $('bomb-hint').textContent = hint;
+
+  // bomb model
+  if (!b || b.s === 'exploded' || (b.s === 'carried' && b.c === net.id)) { bombModel.visible = false; return; }
+  if (b.s === 'carried') {
+    const r = net.remotes.get(b.c);
+    if (!r || r.dead) { bombModel.visible = false; return; }
+    const a = r.avatar;   // on their back
+    bombModel.visible = true;
+    bombModel.position.set(a.position.x - Math.sin(a.rotation.y) * 0.32, a.position.y + 1.05, a.position.z - Math.cos(a.rotation.y) * 0.32);
+    bombModel.rotation.set(Math.PI / 2, a.rotation.y, 0);
+  } else {
+    bombModel.visible = true;
+    bombModel.position.set(b.p[0], getGroundHeight(b.p[0], b.p[2]), b.p[2]);
+    bombModel.rotation.set(0, 0.6, 0);
+  }
+  // planted: beeps speed up as the fuse runs out
+  bombBlinkT = Math.max(0, bombBlinkT - dt);
+  if (b.s === 'planted' && net.phase === 'live') {
+    bombBeepT -= dt;
+    if (bombBeepT <= 0) {
+      bombBeepT = Math.max(0.12, Math.min(1, net.timer / BOMB.fuse * 1.1));
+      bombBlinkT = 0.08;
+      const dist = bombModel.position.distanceTo(player.position);
+      SFX.tone(2300, 0.07, 0.16 * Math.max(0.25, 1 - dist / 45));
+    }
+  }
+  bombLight.material.color.setHex(bombBlinkT > 0 || b.s === 'carried' && Math.sin(performance.now() / 300) > 0.7 ? 0xff2a2a : 0x551111);
+}
 
 function updateNet(dt) {
   // HUD
@@ -2672,6 +2978,9 @@ function updateNet(dt) {
   $('score-red').textContent = net.score.red;
   const t = Math.max(0, Math.ceil(net.timer));
   $('round-timer').textContent = net.phase === 'prestart' ? t : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  const planted = net.type === 'bomb' && net.bomb && net.bomb.s === 'planted' && net.phase === 'live';
+  $('round-timer').parentElement.classList.toggle('planted', planted);
+  if (planted) $('round-timer').textContent = '💣 ' + $('round-timer').textContent;
   $('round-label').textContent = net.phase === 'prestart' ? `ROUND ${net.round} 준비` : `ROUND ${net.round}`;
 
   // send my state at 20 Hz
@@ -2679,7 +2988,7 @@ function updateNet(dt) {
   if (net.sendT <= 0 && !player.dead) {
     net.sendT = 0.05;
     netSend({ t: 'state', p: player.position.toArray().map(v => +v.toFixed(3)), yaw: +cam.yaw.toFixed(1), pitch: +cam.pitch.toFixed(1),
-      w: loadout.current, ads: ads.held });
+      w: loadout.current, ads: ads.held, act: net.act });
   }
 
   // draw others 100 ms in the past, blending between the two snapshots around that time
@@ -2739,6 +3048,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   update(dt);
   updateNet(dt);
+  updateBomb(dt);
   renderer.clear();
   renderer.render(scene, camera);
   renderer.clearDepth();
