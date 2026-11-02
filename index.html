@@ -209,7 +209,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
     <option value="basic">기본칼</option>
     <option value="karambit">카람빗</option>
   </select></label>
-  <button class="btn ghost" id="btn-fullscreen" style="margin-top:10px;width:100%;padding:7px">전체화면 (Ctrl+W 막기)</button>
+  <label>자동 전체화면 (Ctrl+W 막기 · 1+0 나가기) <input type="checkbox" id="auto-fs" checked></label>
   <button class="btn ghost" id="btn-to-menu" style="margin-top:10px;width:100%;padding:7px">메뉴로 나가기</button>
 </div>
 
@@ -2030,7 +2030,23 @@ document.addEventListener('mousemove', e => {
 // pointer lock
 const startScreen = document.getElementById('start-screen');
 
+// Fullscreen + keyboard lock while playing: only then does the browser hand Ctrl+W (crouch + forward) to the game
+// instead of closing the tab. Press 1 and 0 together to leave fullscreen.
+let autoFullscreen = true;
+try { autoFullscreen = localStorage.getItem('autoFullscreen') !== '0'; } catch (e) { /* storage blocked */ }
+function enterGameFullscreen() {
+  const lockKeys = () => { if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock().catch(() => {}); };
+  if (document.fullscreenElement) return lockKeys();
+  if (!autoFullscreen || !document.documentElement.requestFullscreen) return;
+  document.documentElement.requestFullscreen().then(lockKeys).catch(() => {});
+}
+function leaveGameFullscreen() {
+  if (navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+
 function lockPointer() {
+  enterGameFullscreen();
   renderer.domElement.requestPointerLock().then(() => {
     isLocked = true;
     startScreen.classList.add('hidden');
@@ -2055,9 +2071,17 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 document.addEventListener('pointerlockerror', () => {});
-document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && isLocked && e.code !== 'KeyW') e.preventDefault(); });
+// with the keyboard locked, Ctrl+W reaches us too, so every Ctrl combo can be swallowed while playing
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && isLocked) e.preventDefault(); });
+// 1 + 0 together: leave fullscreen
+document.addEventListener('keydown', e => {
+  if ((e.code === 'Digit1' && keys['Digit0']) || (e.code === 'Digit0' && keys['Digit1'])) leaveGameFullscreen();
+});
+// a short Esc goes to the page while the keyboard is locked: let it still free the mouse (settings)
+document.addEventListener('keydown', e => { if (e.code === 'Escape' && isLocked && document.fullscreenElement) document.exitPointerLock(); });
+// last line of defence if the tab is closed anyway (no fullscreen, or a browser without keyboard lock)
 window.addEventListener('beforeunload', e => {
-  if (net.mode === 'online' || net.mode === 'lobby') { e.preventDefault(); e.returnValue = ''; }
+  if (net.mode !== 'menu') { e.preventDefault(); e.returnValue = ''; }
 });
 
 document.addEventListener('keydown', e => {
@@ -2864,19 +2888,12 @@ function startOnlineMatch() {
 }
 
 $('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
-// fullscreen + keyboard lock: the browser then hands Ctrl+W to the game instead of closing the tab (hold Esc to leave)
-$('btn-fullscreen').onclick = async () => {
-  try {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else {
-      await document.documentElement.requestFullscreen();
-      if (navigator.keyboard && navigator.keyboard.lock) await navigator.keyboard.lock();
-    }
-  } catch (e) { /* not allowed */ }
+$('auto-fs').checked = autoFullscreen;
+$('auto-fs').onchange = e => {
+  autoFullscreen = e.target.checked;
+  try { localStorage.setItem('autoFullscreen', autoFullscreen ? '1' : '0'); } catch (err) { /* storage blocked */ }
+  if (!autoFullscreen) leaveGameFullscreen();
 };
-document.addEventListener('fullscreenchange', () => {
-  $('btn-fullscreen').textContent = document.fullscreenElement ? '전체화면 끄기 (Esc 길게)' : '전체화면 (Ctrl+W 막기)';
-});
 let lastCreate = { mode: '1v1', type: 'elim' };
 try { lastCreate = JSON.parse(localStorage.getItem('lastCreate')) || lastCreate; } catch (e) { /* storage blocked */ }
 const create = (mode, type) => {
