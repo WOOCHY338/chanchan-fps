@@ -233,6 +233,23 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   border: 2px solid #1a1410; border-radius: 6px; background: rgba(20,24,20,0.55); }
 #minimap.show { display: block; }
 
+#scope { position: fixed; inset: 0; z-index: 9; pointer-events: none; display: none;
+  background: radial-gradient(circle closest-side at center, transparent 96%, #000 96.5%); }
+#scope.on { display: block; }
+#scope::before, #scope::after { content: ''; position: absolute; background: #000; }
+#scope::before { left: 0; right: 0; top: 50%; height: 1px; }
+#scope::after { top: 0; bottom: 0; left: 50%; width: 1px; }
+#gun-select { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 125; display: none; gap: 10px;
+  background: rgba(12,14,19,0.88); border: 2px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 12px; color: #fff; }
+#gun-select.show { display: flex; align-items: stretch; }
+#gun-select .gs-title { writing-mode: horizontal-tb; font-weight: 800; font-size: 14px; align-self: center; margin-right: 6px; }
+#gun-select .gs-title small { display: block; opacity: 0.6; font-weight: 600; }
+#gun-select .gun-opt { background: rgba(255,255,255,0.06); color: #fff; border: 2px solid rgba(255,255,255,0.15); border-radius: 6px;
+  padding: 8px 14px; font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; text-align: left; min-width: 130px; }
+#gun-select .gun-opt b { display: inline-block; background: #ff4655; border-radius: 3px; padding: 0 6px; margin-right: 8px; font-size: 13px; }
+#gun-select .gun-opt span { display: block; font-size: 11px; font-weight: 600; opacity: 0.7; margin-top: 3px; }
+#gun-select .gun-opt.on { border-color: #ff4655; }
+
 #debug-info {
   position: fixed; top: 214px; left: 20px; color: rgba(255,255,255,0.5);
   font-size: 11px; font-family: monospace; z-index: 10; pointer-events: none;
@@ -367,6 +384,13 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 <canvas id="minimap"></canvas>
 <div id="chat"><div id="chat-log"></div><div id="chat-row"><span class="ch" id="chat-ch">전체</span><input id="chat-input" maxlength="80" autocomplete="off" placeholder="Enter: 전체 · T: 팀 · Esc: 닫기"></div></div>
 <div id="voice-hud"></div>
+<div id="scope"></div>
+<div id="gun-select">
+  <div class="gs-title">주무기 선택 <small>B 닫기</small></div>
+  <button class="gun-opt" data-gun="rifle"><b>1</b>A-K<span>자동 · 35발</span></button>
+  <button class="gun-opt" data-gun="shotgun"><b>2</b>더블배럴<span>산탄 · 2발 · 우클릭 두 발 동시</span></button>
+  <button class="gun-opt" data-gun="sniper"><b>3</b>저격총<span>볼트액션 · 5발 · 우클릭 스코프</span></button>
+</div>
 <div id="debug-info"></div>
 
 <script>
@@ -616,10 +640,28 @@ function part(parent, w, h, d, color, x, y, z, rx = 0, ry = 0, rz = 0) {
   return m;
 }
 function tube(parent, r, len, color, x, y, z) {
-  const m = inked(new THREE.CylinderGeometry(r, r, len, 8), color);
+  const m = inked(new THREE.CylinderGeometry(r, r, len, 12), color);
   m.rotation.x = Math.PI / 2;
   m.position.set(x, y, z);
   parent.add(m);
+  return m;
+}
+// side-profile part: pts are [z, y] points of the outline (gun space), extruded `thick` across x with rounded edges
+function prof(parent, pts, thick, color, bevel = 0.005) {
+  const shape = new THREE.Shape(pts.map(([z, y]) => new THREE.Vector2(z, y)));
+  const depth = Math.max(0.001, thick - 2 * bevel);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 6 });
+  geo.translate(0, 0, -depth / 2);
+  const m = new THREE.Mesh(geo, vmMat(color));
+  m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 40), inkMat));
+  m.rotation.y = -Math.PI / 2;   // shape x → gun z, extrusion → gun x
+  parent.add(m);
+  return m;
+}
+// box with rounded edges (radius r), same arguments as part()
+function rbox(parent, w, h, d, color, x, y, z, r = 0.006) {
+  const m = prof(parent, [[z - d / 2 + r, y - h / 2 + r], [z + d / 2 - r, y - h / 2 + r], [z + d / 2 - r, y + h / 2 - r], [z - d / 2 + r, y + h / 2 - r]], w, color, r);
+  m.position.x = x;
   return m;
 }
 function limb(parent, from, to, w, h, color) {
@@ -638,25 +680,30 @@ const C = {
 
 const gun = new THREE.Group();
 viewmodelGroup.add(gun);
-part(gun, 0.07, 0.1, 0.4, C.metal, 0, 0, -0.08);                       // receiver
-part(gun, 0.064, 0.035, 0.36, C.metalLight, 0, 0.065, -0.09);           // dust cover
+rbox(gun, 0.07, 0.1, 0.4, C.metal, 0, 0, -0.08, 0.008);                // receiver
+prof(gun, [[0.1, 0.048], [-0.27, 0.048], [-0.27, 0.068], [-0.24, 0.08], [0.06, 0.083], [0.1, 0.074]], 0.062, C.metalLight, 0.004); // dust cover (rounded top)
 const chargingHandle = part(gun, 0.04, 0.022, 0.03, C.metalLight, 0.05, 0.055, -0.18);
 // rear sight notch: two ears whose tops line up with the front post tip (y 0.1125)
 part(gun, 0.014, 0.035, 0.03, C.metal, -0.017, 0.095, -0.24);
 part(gun, 0.014, 0.035, 0.03, C.metal, 0.017, 0.095, -0.24);
-part(gun, 0.085, 0.085, 0.24, C.wood, 0, -0.005, -0.4);                 // lower handguard
-part(gun, 0.06, 0.045, 0.2, C.wood, 0, 0.06, -0.39);                    // upper handguard
+prof(gun, [[-0.28, -0.045], [-0.52, -0.038], [-0.53, 0.024], [-0.28, 0.034]], 0.085, C.wood, 0.012);   // lower handguard
+prof(gun, [[-0.29, 0.04], [-0.49, 0.04], [-0.49, 0.066], [-0.47, 0.08], [-0.31, 0.08], [-0.29, 0.068]], 0.06, C.wood, 0.006); // upper handguard
 tube(gun, 0.016, 0.34, C.metal, 0, 0.03, -0.68);                        // barrel
 tube(gun, 0.012, 0.16, C.metalLight, 0, 0.075, -0.56);                  // gas tube
 part(gun, 0.016, 0.075, 0.025, C.metal, 0, 0.075, -0.78);               // front sight
 tube(gun, 0.024, 0.07, C.metal, 0, 0.03, -0.87);                        // muzzle
+part(gun, 0.03, 0.012, 0.02, C.metalLight, 0, 0.05, -0.89, 0.5);       // slant brake
 const magGroup = new THREE.Group();
 gun.add(magGroup);
-part(magGroup, 0.05, 0.13, 0.075, C.mag, 0, -0.11, -0.19, 0.2);         // magazine top
-part(magGroup, 0.048, 0.13, 0.075, C.mag, 0, -0.225, -0.24, 0.55);      // magazine bottom (curved)
-part(gun, 0.05, 0.14, 0.06, C.woodDark, 0, -0.1, 0.06, -0.35);          // pistol grip
-part(gun, 0.012, 0.015, 0.09, C.metal, 0, -0.07, -0.02);                // trigger guard
-part(gun, 0.06, 0.11, 0.3, C.wood, 0, -0.04, 0.26, 0.12);               // stock
+prof(magGroup, [[-0.155, -0.04], [-0.165, -0.12], [-0.19, -0.2], [-0.23, -0.28], [-0.27, -0.33], [-0.335, -0.29],
+  [-0.3, -0.235], [-0.265, -0.16], [-0.245, -0.085], [-0.235, -0.04]], 0.05, C.mag, 0.006);   // curved magazine
+for (const [z, y] of [[-0.2, -0.12], [-0.235, -0.21]]) part(magGroup, 0.054, 0.008, 0.05, C.woodDark, 0, y, z, 0.45); // mag ribs
+prof(gun, [[0.035, -0.045], [0.085, -0.045], [0.125, -0.19], [0.11, -0.205], [0.075, -0.2], [0.04, -0.075]], 0.05, C.woodDark, 0.008); // pistol grip
+part(gun, 0.012, 0.012, 0.1, C.metal, 0, -0.085, -0.02);               // trigger guard
+part(gun, 0.008, 0.035, 0.01, C.metal, 0, -0.065, 0.0, -0.3);           // trigger
+prof(gun, [[0.11, 0.03], [0.2, 0.02], [0.42, -0.02], [0.435, -0.03], [0.44, -0.17], [0.42, -0.18], [0.26, -0.12],
+  [0.16, -0.07], [0.11, -0.05]], 0.058, C.wood, 0.01);                // stock
+rbox(gun, 0.062, 0.16, 0.012, C.metal, 0, -0.1, 0.445, 0.004);         // butt plate
 
 // Right arm: hand on pistol grip, sleeve trailing back-right off screen
 const rHand = part(gun, 0.08, 0.09, 0.11, C.glove, 0.005, -0.1, 0.07, -0.35);
@@ -943,7 +990,7 @@ const TEAM = {
 function createDummy(team) {
   const t = TEAM[team];
   const root = new THREE.Group();
-  const D = 0.07; // paper thickness
+  const D = 0.14; // body thickness (seen from the side)
   const disc = (parent, r, color, x, y, z) => {
     const m = inked(new THREE.CylinderGeometry(r, r, D, 16), color);
     m.rotation.x = Math.PI / 2;
@@ -1136,13 +1183,13 @@ function updateAds(dt) {
   const step = dt / ADS.time;
   ads.t = want ? Math.min(1, ads.t + step) : Math.max(0, ads.t - step);
   const e = adsEase();
-  const zoom = 1 + (ADS.zoom - 1) * e;
+  const zoom = (1 + (ADS.zoom - 1) * e) * gunFovZoom();
   const punch = 1 + (impact.amp > 0 ? impactCurve() * impact.amp * 0.025 : 0);   // heavy stab: zoom in ~2.5% for a moment
   camera.fov = 2 * Math.atan(Math.tan(CONFIG.fov * Math.PI / 360) / (zoom * punch)) * 180 / Math.PI;
   camera.updateProjectionMatrix();
   vmCamera.fov = 58 + (ADS.vmFov - 58) * e;
   vmCamera.updateProjectionMatrix();
-  crosshairEl.style.opacity = (1 - e).toFixed(2);
+  crosshairEl.style.opacity = loadout.current === 'sniper' ? '0' : (1 - e).toFixed(2);
 }
 document.addEventListener('keydown', e => { if (e.code === 'KeyR') startReload(); });
 
@@ -1345,6 +1392,501 @@ function fireShot() {
     spawnConfetti(hit.point, normal, hit.object.material.color.getHex(), 4);
   }
 }
+
+
+// ── PRIMARY WEAPONS ── slot 1 holds one of them (B to choose): the A-K above, a side-by-side double-barrel
+// shotgun and a 5-round bolt-action sniper (AWP-style). The A-K keeps its own code; these two have their own
+// viewmodel, ammo and keyframed animations (draw uses the shared lower/raise).
+const GUNS = {
+  rifle: { name: 'A-K', speedMul: 1 },
+  // per pellet; 8 pellets per barrel, falloff from 8 m, both barrels at once on right-click
+  shotgun: { name: '더블배럴', mag: 2, interval: 0.24, pellets: 8, body: 12, head: 24, spread: 4.2, range: 60, speedMul: 1, reload: 2.3, fillP: 0.66 },
+  // one-shot body, AWP-style scope with two zoom levels; the bolt is worked after every shot
+  sniper: { name: '저격총', mag: 5, interval: 1.25, body: 115, head: 250, range: 300, speedMul: 0.85, scopedSpeedMul: 0.5,
+    reload: 3.0, fillP: 0.63, zoom: [2.6, 6], noscope: 7, bolt: 0.95, boltDelay: 0.2 },
+};
+let primaryGun = 'rifle';
+try { if (GUNS[localStorage.getItem('primaryGun')]) primaryGun = localStorage.getItem('primaryGun'); } catch (e) { /* storage blocked */ }
+
+// keyframe track: keys { p: 0..1, field: [..] }; smoothstep between keys, a missing field counts as zeros
+function sampleTrack(keys, p) {
+  let i = 0;
+  while (i < keys.length - 2 && p > keys[i + 1].p) i++;
+  const a = keys[i], b = keys[i + 1];
+  let t = Math.min(1, Math.max(0, (p - a.p) / (b.p - a.p)));
+  t = t * t * (3 - 2 * t);
+  const out = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (k === 'p') continue;
+    const va = a[k] || (b[k] || []).map(() => 0), vb = b[k] || va.map(() => 0);
+    out[k] = va.map((v, j) => v + (vb[j] - v) * t);
+  }
+  return out;
+}
+const tv = (o, k, n = 3) => o[k] || new Array(n).fill(0);
+
+// a gloved hand with a sleeve rebuilt each frame from the wrist to a fixed elbow (same idea as the A-K's left arm)
+function makeArm(parent, rest, elbow) {
+  const hand = new THREE.Group();
+  parent.add(hand);
+  part(hand, 0.085, 0.075, 0.12, C.glove, 0, 0, 0);
+  part(hand, 0.03, 0.05, 0.08, C.glove, 0.045, 0.02, -0.01);    // fingers wrapping over
+  const fore = new THREE.Group();
+  parent.add(fore);
+  const sleeve = inked(new THREE.BoxGeometry(0.11, 0.1, 1), C.sleeve);
+  fore.add(sleeve);
+  part(fore, 0.13, 0.115, 0.03, C.sleeveDark, 0, 0, 0.07);
+  const w = new THREE.Vector3(), e = new THREE.Vector3();
+  return {
+    hand,
+    pose(off = [0, 0, 0]) {
+      hand.position.set(rest[0] + off[0], rest[1] + off[1], rest[2] + off[2]);
+      w.set(hand.position.x, hand.position.y - 0.015, hand.position.z + 0.06);
+      e.set(elbow[0], elbow[1], elbow[2]);
+      const len = w.distanceTo(e);
+      fore.position.copy(w);
+      fore.quaternion.setFromUnitVectors(_fz, e.sub(w).normalize());
+      sleeve.scale.z = len;
+      sleeve.position.z = len / 2;
+    },
+  };
+}
+function makeFlash(parent, x, y, z, scale = 1) {
+  const g = new THREE.Group();
+  const a = new THREE.Mesh(flashGeo, flashMat), b = new THREE.Mesh(flashGeo, flashMat);
+  b.rotation.y = Math.PI / 2;
+  g.add(a, b);
+  g.position.set(x, y, z);
+  g.scale.setScalar(scale);
+  g.visible = false;
+  parent.add(g);
+  return g;
+}
+// a shotgun shell / rifle casing as a small paper cylinder (+z = the brass end)
+function makeShell(parent, color, r, len) {
+  const s = new THREE.Group();
+  const body = inked(new THREE.CylinderGeometry(r, r, len, 10), color);
+  body.rotation.x = Math.PI / 2;
+  s.add(body);
+  const base = inked(new THREE.CylinderGeometry(r * 1.08, r * 1.08, len * 0.28, 10), 0xd8b04a);
+  base.rotation.x = Math.PI / 2;
+  base.position.z = len * 0.4;
+  s.add(base);
+  parent.add(s);
+  return s;
+}
+// spent shells/casings thrown out of the viewmodel
+const vmDebris = [];
+function ejectShell(fromObj, color, r, len, vel) {
+  const s = makeShell(vmCamera, color, r, len);
+  fromObj.updateMatrixWorld(true);
+  vmCamera.updateMatrixWorld(true);
+  fromObj.getWorldPosition(s.position);
+  vmCamera.worldToLocal(s.position);
+  s.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+  s.userData = { v: new THREE.Vector3(...vel), spin: new THREE.Vector3(8 + Math.random() * 8, 6, 3), life: 0.7 };
+  vmDebris.push(s);
+}
+
+// ── 더블배럴 (side-by-side, break action) ──
+const SG_BASE = new THREE.Vector3(0.27, -0.25, -0.62), SG_ROT = new THREE.Euler(0.04, 0.08, 0.06);
+const sgRoot = new THREE.Group();
+vmCamera.add(sgRoot);
+sgRoot.visible = false;
+const sgGun = new THREE.Group();
+sgRoot.add(sgGun);
+rbox(sgGun, 0.074, 0.074, 0.13, C.metalLight, 0, -0.004, -0.062, 0.01);                       // action
+part(sgGun, 0.02, 0.012, 0.05, C.metal, 0, 0.038, 0.02, 0, 0.35, 0);                         // top lever
+prof(sgGun, [[0.0, 0.03], [0.12, 0.012], [0.37, -0.02], [0.395, -0.03], [0.4, -0.17], [0.375, -0.18], [0.2, -0.105],
+  [0.11, -0.085], [0.07, -0.105], [0.035, -0.1], [0.0, -0.04]], 0.06, C.wood, 0.01);         // straight stock + wrist
+part(sgGun, 0.01, 0.01, 0.075, C.metal, 0, -0.07, -0.03);                                    // trigger guard
+part(sgGun, 0.008, 0.035, 0.01, C.metal, 0, -0.055, -0.02, -0.3);                            // trigger
+const sgBarrels = new THREE.Group();          // hinged at the bottom front of the action
+sgBarrels.position.set(0, -0.035, -0.125);
+sgGun.add(sgBarrels);
+for (const x of [-0.021, 0.021]) tube(sgBarrels, 0.02, 0.62, C.metal, x, 0.05, -0.31);
+for (const x of [-0.021, 0.021]) tube(sgBarrels, 0.023, 0.03, C.metalLight, x, 0.05, -0.605);  // muzzle rings
+part(sgBarrels, 0.012, 0.01, 0.6, C.metalLight, 0, 0.074, -0.31);                            // top rib
+part(sgBarrels, 0.008, 0.008, 0.008, 0xe8e2cf, 0, 0.083, -0.6);                               // bead sight
+prof(sgBarrels, [[-0.02, 0.035], [-0.27, 0.035], [-0.29, 0.02], [-0.28, -0.004], [-0.03, -0.014], [-0.012, 0.008]], 0.072, C.wood, 0.01); // forend
+const sgChamber = [-0.021, 0.021].map(x => {     // loaded shells, seen when the gun is broken open
+  const s = makeShell(sgBarrels, 0xb83a2e, 0.017, 0.07);
+  s.position.set(x, 0.05, -0.03);
+  return s;
+});
+const sgFlash = makeFlash(sgBarrels, 0, 0.05, -0.66, 1.2);
+const sgRight = makeArm(sgGun, [0.012, -0.08, 0.085], [0.24, -0.34, 0.6]);
+const sgLeft = makeArm(sgGun, [0, -0.07, -0.31], [-0.3, -0.42, 0.05]);
+const sgHandShells = new THREE.Group();          // the two fresh shells in the left hand
+sgLeft.hand.add(sgHandShells);
+for (const x of [-0.021, 0.021]) { const s = makeShell(sgHandShells, 0xb83a2e, 0.017, 0.07); s.position.set(x, 0.055, 0); }
+sgHandShells.rotation.x = -0.9;
+// reload: thumb the lever and break it open (shells kick out), hand down for two shells, thumb them in, flick it shut
+const SG_RELOAD = [
+  { p: 0 },
+  { p: 0.08, gr: [0.2, 0.1, -0.3], gp: [-0.02, 0.01, 0] },
+  { p: 0.16, gr: [0.3, 0.18, -0.45], gp: [-0.03, 0.02, 0], open: [0.75], lh: [0, 0.02, 0.02] },
+  { p: 0.22, gr: [0.34, 0.2, -0.48], gp: [-0.03, 0.02, 0], open: [0.75], lh: [-0.06, -0.15, 0.1] },
+  { p: 0.36, gr: [0.32, 0.2, -0.46], gp: [-0.03, 0.02, 0], open: [0.75], lh: [-0.12, -0.42, 0.25] },
+  { p: 0.44, gr: [0.32, 0.2, -0.46], gp: [-0.03, 0.02, 0], open: [0.75], lh: [-0.12, -0.42, 0.25], hs: [1] },
+  { p: 0.58, gr: [0.3, 0.2, -0.45], gp: [-0.03, 0.02, 0], open: [0.75], lh: [0, 0.15, 0.2], hs: [1] },
+  { p: 0.66, gr: [0.33, 0.21, -0.47], gp: [-0.03, 0.02, 0], open: [0.75], lh: [0, 0.11, 0.19] },
+  { p: 0.74, gr: [0.3, 0.18, -0.44], gp: [-0.03, 0.02, 0], open: [0.75], lh: [0, 0.02, 0.02] },
+  { p: 0.8, gr: [0.16, 0.1, -0.28], gp: [-0.02, 0.03, 0] },
+  { p: 0.86, gr: [-0.06, 0.05, -0.12], gp: [0, 0.02, 0] },
+  { p: 1 },
+];
+
+// ── 저격총 (AWP-style bolt action) ──
+const SR_BASE = new THREE.Vector3(0.27, -0.26, -0.6), SR_ROT = new THREE.Euler(0.04, 0.08, 0.05);
+const C_AWP = 0x5d6e45, C_AWP_DARK = 0x46553a;
+const srRoot = new THREE.Group();
+vmCamera.add(srRoot);
+srRoot.visible = false;
+const srGun = new THREE.Group();
+srRoot.add(srGun);
+prof(srGun, [[0.44, 0.03], [0.44, -0.16], [0.4, -0.17], [0.22, -0.1], [0.14, -0.125], [0.105, -0.2], [0.065, -0.2],
+  [0.04, -0.06], [-0.36, -0.05], [-0.385, -0.025], [-0.38, 0.02], [0.05, 0.022], [0.12, 0.045], [0.36, 0.045]], 0.07, C_AWP, 0.012); // stock + body
+rbox(srGun, 0.03, 0.03, 0.05, C_AWP_DARK, 0, 0.065, 0.28, 0.008);                              // cheek rest
+rbox(srGun, 0.06, 0.055, 0.3, C.metal, 0, 0.05, -0.06, 0.008);                                 // receiver
+tube(srGun, 0.016, 0.66, C.metal, 0, 0.05, -0.54);                                              // barrel
+rbox(srGun, 0.044, 0.044, 0.07, C.metalLight, 0, 0.05, -0.89, 0.008);                           // muzzle brake
+part(srGun, 0.05, 0.012, 0.03, C.metal, 0, 0.05, -0.88);                                        // brake slots
+tube(srGun, 0.027, 0.26, C.metal, 0, 0.118, -0.06);                                             // scope tube
+tube(srGun, 0.037, 0.07, C.metal, 0, 0.118, -0.22);                                             // objective bell
+tube(srGun, 0.033, 0.06, C.metal, 0, 0.118, 0.1);                                               // eyepiece
+part(srGun, 0.015, 0.03, 0.02, C.metal, 0, 0.152, -0.06);                                       // turret
+part(srGun, 0.03, 0.015, 0.02, C.metal, 0.03, 0.118, -0.06);                                    // side turret
+for (const z of [-0.14, 0.02]) part(srGun, 0.022, 0.04, 0.025, C.metalLight, 0, 0.085, z);      // rings
+const srLens = new THREE.Mesh(new THREE.CircleGeometry(0.03, 16), new THREE.MeshBasicMaterial({ color: 0x1b2433 }));
+srLens.position.set(0, 0.118, 0.131);
+srGun.add(srLens);
+part(srGun, 0.01, 0.01, 0.07, C.metal, 0, -0.065, 0.02);                                        // trigger guard
+part(srGun, 0.008, 0.03, 0.01, C.metal, 0, -0.05, 0.035, -0.3);                                 // trigger
+const srMag = new THREE.Group();
+srGun.add(srMag);
+rbox(srMag, 0.046, 0.075, 0.1, C.metal, 0, -0.07, -0.06, 0.008);
+const srBolt = new THREE.Group();     // bolt handle: lifts (rotation.z) and slides back (+z)
+srBolt.position.set(0.03, 0.05, 0.075);
+srGun.add(srBolt);
+part(srBolt, 0.06, 0.012, 0.012, C.metalLight, 0.03, 0, 0, 0, 0, -0.35);
+const srKnob = inked(new THREE.SphereGeometry(0.014, 10, 8), C.metal);
+srKnob.position.set(0.062, -0.012, 0);
+srBolt.add(srKnob);
+const srPort = new THREE.Object3D();   // where casings come out
+srPort.position.set(0.03, 0.06, -0.02);
+srGun.add(srPort);
+const srFlash = makeFlash(srGun, 0, 0.05, -0.95, 1.6);
+const srRight = makeArm(srGun, [0.0, -0.105, 0.08], [0.24, -0.34, 0.6]);
+const srLeft = makeArm(srGun, [0, -0.075, -0.25], [-0.3, -0.42, 0.05]);
+// bolt cycle: hand up to the knob, lift, pull back (casing flies), push, lock, hand back to the grip
+const SR_BOLT = [
+  { p: 0 },
+  { p: 0.15, rh: [0.1, 0.13, 0.015], gr: [0.04, 0.06, 0.18] },
+  { p: 0.28, rh: [0.1, 0.16, 0.015], bolt: [1.1, 0], gr: [0.05, 0.07, 0.22] },
+  { p: 0.45, rh: [0.1, 0.16, 0.105], bolt: [1.1, 0.09], gr: [0.06, 0.08, 0.24] },
+  { p: 0.6, rh: [0.1, 0.16, 0.015], bolt: [1.1, 0], gr: [0.05, 0.07, 0.22] },
+  { p: 0.72, rh: [0.1, 0.13, 0.015], bolt: [0, 0], gr: [0.03, 0.05, 0.15] },
+  { p: 0.88, gr: [0.01, 0.01, 0.03] },
+  { p: 1 },
+];
+// reload: cant, drop the mag, fresh one up and seated, then work the bolt
+const SR_RELOAD = [
+  { p: 0 },
+  { p: 0.1, gr: [0.3, 0.3, -0.4], gp: [-0.04, 0.01, -0.04] },
+  { p: 0.18, gr: [0.3, 0.3, -0.4], gp: [-0.04, 0.01, -0.04], lh: [0, -0.03, 0.17] },
+  { p: 0.26, gr: [0.32, 0.31, -0.42], gp: [-0.04, 0.01, -0.04], lh: [0, -0.15, 0.19], mag: [0, -0.12, 0.02] },
+  { p: 0.36, gr: [0.3, 0.3, -0.4], gp: [-0.04, 0.01, -0.04], lh: [-0.05, -0.55, 0.3], mag: [0, -0.5, 0.15] },
+  { p: 0.46, gr: [0.3, 0.3, -0.4], gp: [-0.04, 0.01, -0.04], lh: [-0.05, -0.55, 0.3], mag: [0, -0.5, 0.15] },
+  { p: 0.58, gr: [0.3, 0.3, -0.4], gp: [-0.04, 0.01, -0.04], lh: [0, -0.11, 0.18], mag: [0, -0.08, 0.01] },
+  { p: 0.63, gr: [0.36, 0.32, -0.44], gp: [-0.04, 0.02, -0.04], lh: [0, -0.03, 0.17] },
+  { p: 0.7, gr: [0.15, 0.15, -0.15], gp: [-0.02, 0, -0.02] },
+  { p: 0.74, rh: [0.1, 0.13, 0.015], gr: [0.04, 0.06, 0.18] },
+  { p: 0.78, rh: [0.1, 0.16, 0.015], bolt: [1.1, 0], gr: [0.05, 0.07, 0.22] },
+  { p: 0.83, rh: [0.1, 0.16, 0.105], bolt: [1.1, 0.09], gr: [0.06, 0.08, 0.24] },
+  { p: 0.87, rh: [0.1, 0.16, 0.015], bolt: [1.1, 0], gr: [0.05, 0.07, 0.22] },
+  { p: 0.9, rh: [0.1, 0.13, 0.015], bolt: [0, 0], gr: [0.03, 0.05, 0.15] },
+  { p: 1 },
+];
+
+// per-gun state
+const sg = { ammo: GUNS.shotgun.mag, cooldown: 0, reloading: 0, kick: 0, flashT: 0, ejected: false, trig: false };
+const sr = { ammo: GUNS.sniper.mag, cooldown: 0, reloading: 0, kick: 0, flashT: 0, bolt: 0, boltDelay: 0, ejected: false,
+  zoom: 0, resume: 0, zoomE: 1, trig: false };
+let gunSounds = [];
+function gunSound(name, opts) { const s = SFX.play(name, opts); if (s) gunSounds.push(s); }
+function stopGunSounds() { for (const s of gunSounds) { try { s.stop(); } catch (e) { /* ended */ } } gunSounds = []; }
+// switching weapons / dying: stop reloads and the scope (the bolt finishes off-screen)
+function cancelGunActions() {
+  sg.reloading = 0; sr.reloading = 0; sr.zoom = 0; sr.resume = 0;
+  stopGunSounds();
+}
+function resetGuns() {
+  cancelGunActions();
+  sg.ammo = GUNS.shotgun.mag; sr.ammo = GUNS.sniper.mag;
+  sg.cooldown = sr.cooldown = 0; sr.bolt = 0; sr.boltDelay = 0;
+}
+const gunSpeedMul = w => w === 'knife' ? KNIFE.speedMul : w === 'sniper' && sr.zoom > 0 ? GUNS.sniper.scopedSpeedMul : (GUNS[w] || GUNS.rifle).speedMul;
+// FOV zoom from the sniper scope (eased so the scope snaps in quickly but not instantly)
+const gunFovZoom = () => sr.zoomE;
+const scopedIn = () => loadout.current === 'sniper' && sr.zoom > 0 && sr.zoomE > 1.5;
+function gunSpread(w) {
+  const sp = Math.hypot(player.velocity.x, player.velocity.z) / CONFIG.walkSpeed;
+  const air = player.isGrounded ? 0 : 1;
+  const crouchMul = 1 + (CONFIG.crouchSpreadMul - 1) * player.crouch;
+  if (w === 'shotgun') return (GUNS.shotgun.spread + sp * 1.2 + air * 2) * crouchMul;
+  if (w === 'sniper') return ((scopedIn() ? 0 : GUNS.sniper.noscope) + Math.pow(Math.min(1.5, sp), 1.3) * 5 + air * 8) * crouchMul;
+  return 0;
+}
+
+const _gunRay = new THREE.Raycaster();
+function castShot(offPitch, offYaw, range) {
+  camera.updateMatrixWorld();
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  const rightV = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  const dir = fwd.addScaledVector(up, Math.tan(offPitch * Math.PI / 180)).addScaledVector(rightV, -Math.tan(offYaw * Math.PI / 180)).normalize();
+  _gunRay.set(camera.position, dir);
+  _gunRay.far = range;
+  const hit = _gunRay.intersectObjects([...worldMeshes(), ...dummies.filter(d => !d.userData.dead)], true).find(h => h.object.isMesh);
+  return { hit, dir };
+}
+// one trigger pull: pellets on the same target add up and are reported once (like one A-K bullet)
+function applyGunHits(list, w) {
+  const per = new Map();
+  for (const { hit, dir, body, head: headDmg } of list) {
+    if (!hit) continue;
+    const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : dir.clone().negate();
+    const dummy = hit.object.userData.dummy;
+    if (!dummy) { addDecal(hit.point, normal); spawnConfetti(hit.point, normal, hit.object.material.color.getHex(), 3); continue; }
+    const head = !!hit.object.userData.isHead;
+    const e = per.get(dummy) || { dmg: 0, head: false };
+    e.dmg += head ? headDmg : body;
+    e.head = e.head || head;
+    per.set(dummy, e);
+    spawnConfetti(hit.point, normal, head ? 0xf4efe2 : hit.object.material.color.getHex(), head ? 8 : 4);
+  }
+  for (const [dummy, e] of per) {
+    const u = dummy.userData, dmg = Math.round(e.dmg);
+    if (reportHit(dummy, dmg, e.head, w)) { if (u.team !== net.myTeam) u.hitT = 0.12; continue; }
+    u.hp -= dmg;
+    u.hitT = 0.12;
+    showHitmarker(e.head);
+    if (u.hp <= 0 && !u.dead) { u.dead = true; u.deadT = 0; showKill(e.head ? 'HEADSHOT' : 'ELIMINATED'); }
+  }
+}
+
+function fireShotgun(barrels) {
+  const n = Math.min(barrels, sg.ammo);
+  if (n <= 0) return;
+  sg.ammo -= n;
+  const G = GUNS.shotgun;
+  SFX.play('shots', { vol: 0.8, rate: 0.7, jitter: 0.03 });
+  SFX.tone(62, 0.25, 0.45, 0, 'sine');
+  if (n > 1) SFX.play('shots', { vol: 0.7, rate: 0.64, delay: 0.012 });
+  sg.kick = n > 1 ? 1.6 : 1;
+  sg.flashT = 0.05;
+  recoil.pendPitch += (n > 1 ? 5.5 : 3.4) + Math.random() * 0.6;
+  recoil.pendYaw += (Math.random() - 0.5) * 1.2;
+  recoil.sinceShot = 0;
+  const spread = gunSpread('shotgun') * (n > 1 ? 1.25 : 1);
+  const list = [];
+  for (let i = 0; i < G.pellets * n; i++) {
+    const r = spread * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+    const shot = castShot(Math.sin(a) * r, Math.cos(a) * r, G.range);
+    const d = shot.hit ? shot.hit.distance : 99;
+    const fall = d < 8 ? 1 : d > 25 ? 0.25 : 1 - (d - 8) / 17 * 0.75;
+    list.push({ ...shot, body: G.body * fall, head: G.head * fall });
+    if (i === 0) reportShot(camera.position, shot.hit ? shot.hit.point : camera.position.clone().addScaledVector(shot.dir, 40));
+  }
+  applyGunHits(list, 'shotgun');
+}
+function fireSniper() {
+  sr.ammo--;
+  const G = GUNS.sniper;
+  SFX.play('shots', { vol: 1, rate: 0.52 });
+  SFX.tone(44, 0.45, 0.6, 0, 'sine');
+  const spread = gunSpread('sniper');
+  const r = spread * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+  const shot = castShot(Math.sin(a) * r, Math.cos(a) * r, G.range);
+  reportShot(camera.position, shot.hit ? shot.hit.point : camera.position.clone().addScaledVector(shot.dir, 120));
+  applyGunHits([{ ...shot, body: G.body, head: G.head }], 'sniper');
+  sr.kick = 1;
+  sr.flashT = 0.06;
+  recoil.pendPitch += 3.8 + Math.random() * 0.5;
+  recoil.pendYaw += (Math.random() - 0.5) * 0.6;
+  recoil.sinceShot = 0;
+  // AWP: the shot knocks you out of the scope, the bolt is worked, then it zooms back in
+  sr.resume = sr.zoom;
+  sr.zoom = 0;
+  if (sr.ammo > 0) { sr.boltDelay = G.boltDelay; sr.bolt = 0; sr.ejected = false; }
+}
+function startGunReload() {
+  const w = loadout.current;
+  if (loadout.phase !== 'idle') return;
+  if (w === 'shotgun' && sg.reloading <= 0 && sg.ammo < GUNS.shotgun.mag) {
+    sg.reloading = GUNS.shotgun.reload; sg.ejected = false;
+    const T = GUNS.shotgun.reload;
+    gunSound('click', { vol: 0.5, rate: 0.7, delay: 0.16 * T });                       // break open
+    gunSound('click', { vol: 0.45, rate: 1.15, delay: 0.62 * T });                     // shells in
+    gunSound('click', { vol: 0.45, rate: 1.05, delay: 0.65 * T });
+    gunSound('rack', { vol: 0.55, delay: 0.79 * T, offset: 1.18 });                    // snap shut
+  }
+  if (w === 'sniper' && sr.reloading <= 0 && sr.ammo < GUNS.sniper.mag && sr.bolt <= 0 && sr.boltDelay <= 0) {
+    sr.reloading = GUNS.sniper.reload; sr.zoom = 0; sr.resume = 0; sr.ejected = true;
+    const T = GUNS.sniper.reload;
+    gunSound('reload', { vol: 0.75, delay: 0.63 * T - 1.27 });
+    gunSound('click', { vol: 0.5, rate: 0.8, delay: 0.78 * T });
+    gunSound('rack', { vol: 0.6, delay: 0.87 * T - 0.3, offset: 1.0 });
+  }
+}
+function boltSounds() {
+  gunSound('click', { vol: 0.45, rate: 0.85, delay: 0.25 * GUNS.sniper.bolt });
+  gunSound('rack', { vol: 0.55, delay: 0.6 * GUNS.sniper.bolt - 0.29, offset: 1.0 });
+}
+
+// called every frame from updateShooting
+function updateGuns(dt) {
+  const w = loadout.current, ready = loadout.phase === 'idle';
+  for (const g of [sg, sr]) { g.cooldown = Math.max(0, g.cooldown - dt); g.kick = Math.max(0, g.kick - dt * 6); g.flashT -= dt; }
+
+  // shotgun
+  if (sg.reloading > 0) {
+    sg.reloading -= dt;
+    const p = 1 - sg.reloading / GUNS.shotgun.reload;
+    if (!sg.ejected && p > 0.17) {
+      sg.ejected = true;
+      for (const s of sgChamber) if (GUNS.shotgun.mag - sg.ammo > 0) ejectShell(s, 0x8a2c22, 0.017, 0.07, [(Math.random() - 0.5) * 0.4, 1.2, 0.9]);
+    }
+    if (p >= GUNS.shotgun.fillP) sg.ammo = GUNS.shotgun.mag;
+    if (sg.reloading <= 0) sg.reloading = 0;
+  }
+  if (w === 'shotgun' && ready && sg.reloading <= 0) {
+    const pullL = firing && !sg.trig, pullR = ads.held && !sg.trigR;
+    if ((pullL || pullR) && sg.cooldown <= 0) {
+      if (sg.ammo > 0) { fireShotgun(pullR ? 2 : 1); sg.cooldown = GUNS.shotgun.interval; }
+      else { sfx.dryFire(); startGunReload(); }
+    }
+  }
+  sg.trig = firing; sg.trigR = ads.held;
+
+  // sniper: bolt after each shot
+  if (sr.boltDelay > 0) {
+    sr.boltDelay -= dt;
+    if (sr.boltDelay <= 0) { sr.bolt = GUNS.sniper.bolt; boltSounds(); }
+  } else if (sr.bolt > 0) {
+    sr.bolt -= dt;
+    const p = 1 - sr.bolt / GUNS.sniper.bolt;
+    if (!sr.ejected && p > 0.45) { sr.ejected = true; ejectShell(srPort, 0xd8b04a, 0.008, 0.05, [0.9, 0.8, 0.3]); }
+    if (sr.bolt <= 0) {
+      sr.bolt = 0;
+      if (w === 'sniper' && sr.resume) sr.zoom = sr.resume;   // AWP-style: back into the scope after the bolt
+      sr.resume = 0;
+    }
+  }
+  if (sr.reloading > 0) {
+    sr.reloading -= dt;
+    if (1 - sr.reloading / GUNS.sniper.reload >= GUNS.sniper.fillP) sr.ammo = GUNS.sniper.mag;
+    if (sr.reloading <= 0) sr.reloading = 0;
+  }
+  const srBusy = sr.reloading > 0 || sr.bolt > 0 || sr.boltDelay > 0;
+  if (w === 'sniper' && ready && !srBusy && firing && !sr.trig && sr.cooldown <= 0) {
+    if (sr.ammo > 0) { fireSniper(); sr.cooldown = GUNS.sniper.interval; }
+    else { sfx.dryFire(); startGunReload(); }
+  }
+  sr.trig = firing;
+  if (w !== 'sniper' || !ready || player.dead || !playerCanAct()) sr.zoom = 0;
+  const targetZoom = sr.zoom ? GUNS.sniper.zoom[sr.zoom - 1] : 1;
+  sr.zoomE += (targetZoom - sr.zoomE) * Math.min(1, dt * 22);
+  if (Math.abs(targetZoom - sr.zoomE) < 0.01) sr.zoomE = targetZoom;
+  document.getElementById('scope').classList.toggle('on', scopedIn());
+
+  // debris (spent shells)
+  for (let i = vmDebris.length - 1; i >= 0; i--) {
+    const s = vmDebris[i], u = s.userData;
+    u.life -= dt;
+    if (u.life <= 0) { vmCamera.remove(s); vmDebris.splice(i, 1); continue; }
+    u.v.y -= 6 * dt;
+    s.position.addScaledVector(u.v, dt);
+    s.rotation.x += u.spin.x * dt; s.rotation.y += u.spin.y * dt;
+  }
+  poseGuns(dt);
+}
+// right-click with the sniper: no scope → zoom 1 → zoom 2 → off
+document.addEventListener('mousedown', e => {
+  if (!isLocked || e.button !== 2 || loadout.current !== 'sniper' || loadout.phase !== 'idle') return;
+  if (sr.reloading > 0 || sr.bolt > 0 || sr.boltDelay > 0) return;
+  sr.zoom = (sr.zoom + 1) % 3;
+  SFX.play('click', { vol: 0.25, rate: 1.6 });
+});
+document.addEventListener('keydown', e => { if (e.code === 'KeyR' && isLocked) startGunReload(); });
+
+function poseGuns(dt) {
+  const speed = Math.hypot(player.velocity.x, player.velocity.z);
+  const time = performance.now() * 0.001;
+  const moving = speed > 0.5 && player.isGrounded;
+  const bobX = moving ? Math.sin(time * 11) * 0.014 : 0;
+  const bobY = moving ? -Math.abs(Math.cos(time * 11)) * 0.012 : Math.sin(time * 1.5) * 0.003;
+  const place = (root, base, rot, kick, kickBack, kickUp) => {
+    root.position.set(base.x + bobX + vmSway.x, base.y + bobY + vmSway.y - 0.35 * loadout.h, base.z + kick * kickBack);
+    root.rotation.set(rot.x - vmSway.y * 2 + kick * kickUp - 0.8 * loadout.h, rot.y + vmSway.x * 2, rot.z + bobX * 1.5);
+  };
+  // shotgun
+  sgRoot.visible = loadout.current === 'shotgun' && !player.dead;
+  if (sgRoot.visible) {
+    place(sgRoot, SG_BASE, SG_ROT, sg.kick, 0.07, 0.22);
+    const k = sg.reloading > 0 ? sampleTrack(SG_RELOAD, 1 - sg.reloading / GUNS.shotgun.reload) : {};
+    sgGun.rotation.set(...tv(k, 'gr'));
+    sgGun.position.set(...tv(k, 'gp'));
+    sgBarrels.rotation.x = -tv(k, 'open', 1)[0];
+    for (const s of sgChamber) s.visible = tv(k, 'open', 1)[0] > 0.05;
+    sgHandShells.visible = tv(k, 'hs', 1)[0] > 0.5;
+    sgLeft.pose(tv(k, 'lh'));
+    sgRight.pose([0, 0, 0]);
+    sgFlash.visible = sg.flashT > 0;
+    sgFlash.rotation.z = Math.random() * Math.PI;
+  }
+  // sniper (hidden while looking through the scope)
+  srRoot.visible = loadout.current === 'sniper' && !player.dead && !scopedIn();
+  if (srRoot.visible) {
+    place(srRoot, SR_BASE, SR_ROT, sr.kick, 0.09, 0.3);
+    const k = sr.reloading > 0 ? sampleTrack(SR_RELOAD, 1 - sr.reloading / GUNS.sniper.reload)
+      : sr.bolt > 0 ? sampleTrack(SR_BOLT, 1 - sr.bolt / GUNS.sniper.bolt) : {};
+    srGun.rotation.set(...tv(k, 'gr'));
+    srGun.position.set(...tv(k, 'gp'));
+    srMag.position.set(...tv(k, 'mag'));
+    const bolt = tv(k, 'bolt', 2);
+    srBolt.rotation.z = bolt[0];
+    srBolt.position.z = 0.075 + bolt[1];
+    srLeft.pose(tv(k, 'lh'));
+    srRight.pose(tv(k, 'rh'));
+    srFlash.visible = sr.flashT > 0;
+    srFlash.rotation.z = Math.random() * Math.PI;
+  }
+}
+
+// ── weapon select (B): 1 A-K · 2 더블배럴 · 3 저격총 ──
+const gunSel = { open: false };
+function setGunSel(open) {
+  gunSel.open = open;
+  document.getElementById('gun-select').classList.toggle('show', open);
+  for (const b of document.querySelectorAll('#gun-select .gun-opt')) b.classList.toggle('on', b.dataset.gun === primaryGun);
+}
+function choosePrimary(w) {
+  primaryGun = w;
+  try { localStorage.setItem('primaryGun', w); } catch (e) { /* storage blocked */ }
+  setGunSel(false);
+  if (loadout.current !== 'knife') requestWeapon(w);
+}
+document.addEventListener('keydown', e => {
+  if (!isLocked || !inGame()) return;
+  if (e.code === 'KeyB') { setGunSel(!gunSel.open); return; }
+  if (!gunSel.open) return;
+  const pick = { Digit1: 'rifle', Digit2: 'shotgun', Digit3: 'sniper' }[e.code];
+  if (pick) { e.gunSelKey = true; choosePrimary(pick); }
+  if (e.code === 'Escape') setGunSel(false);
+});
+for (const b of document.querySelectorAll('#gun-select .gun-opt')) b.onclick = () => choosePrimary(b.dataset.gun);
 
 // ── KNIFE: 기본칼 (modeled after Valorant's Xenohunter knife) ──
 const KNIFE = { name: '기본칼', lightDmg: 50, heavyDmg: 75, backstabDmg: 150, lightRange: 2.0, heavyRange: 1.7, speedMul: 1.12 };
@@ -1930,22 +2472,23 @@ function knifeStrike(anim) {
   return 'hit';
 }
 
-// ── WEAPON SLOTS (1 = AK, 3 = 기본칼) ──
-const loadout = { current: 'rifle', next: null, phase: 'idle', h: 0 };
+// ── WEAPON SLOTS (1 = primary chosen with B, 3 = 기본칼) ──
+const loadout = { current: primaryGun, next: null, phase: 'idle', h: 0 };
 const SWITCH = { lower: 0.16, raise: 0.32 };
 function requestWeapon(w) {
   if (w === loadout.current && loadout.phase !== 'lower') return;
   loadout.next = w;
   loadout.phase = 'lower';
   cancelReload();
+  cancelGunActions();
   knifeState.anim = null;
   knifeState.airQ = null;
 }
 document.addEventListener('keydown', e => {
-  if (!isLocked) return;
+  if (!isLocked || gunSel.open || e.gunSelKey) return;
   if (e.code === 'Digit1') {
-    if (loadout.current === 'rifle' && loadout.phase === 'idle') cancelReload();   // tap your weapon key to cancel a reload
-    else requestWeapon('rifle');
+    if (loadout.current === primaryGun && loadout.phase === 'idle') { cancelReload(); cancelGunActions(); }   // tap your weapon key to cancel a reload
+    else requestWeapon(primaryGun);
   }
   if (e.code === 'Digit3') requestWeapon('knife');
   if (e.code === 'KeyY' && loadout.current === 'knife' && loadout.phase === 'idle' && !knifeState.anim) startKnifeAnim('inspect');
@@ -1956,7 +2499,7 @@ function updateLoadout(dt) {
     if (loadout.h >= 1) {
       loadout.current = loadout.next;
       loadout.phase = 'raise';
-      if (loadout.current === 'rifle') sfx.rifleRaise();
+      if (loadout.current !== 'knife') sfx.rifleRaise();
       // the knife has its own draw motion (traced from Valorant) instead of the generic raise
       if (loadout.current === 'knife') {
         loadout.h = 0;
@@ -2073,6 +2616,7 @@ function updateShooting(dt) {
   }
   const rifleReady = loadout.current === 'rifle' && loadout.phase === 'idle';
   if (loadout.current === 'knife') updateKnife(dt);
+  updateGuns(dt);
   if (rifleReady && firing && weapon.cooldown <= 0 && weapon.reloading <= 0) {
     if (weapon.ammo > 0) {
       fireShot();
@@ -2088,7 +2632,7 @@ function updateShooting(dt) {
   if (recoil.sinceShot > RECOIL.sprayResetDelay) weapon.spray = Math.max(0, weapon.spray - RECOIL.sprayResetRate * dt);
 
   // crosshair gap = on-screen radius of the next shot's spread cone
-  const spreadNext = currentSpread(Math.min(SPRAY.length - 1, Math.floor(weapon.spray)));
+  const spreadNext = loadout.current === 'rifle' ? currentSpread(Math.min(SPRAY.length - 1, Math.floor(weapon.spray))) : gunSpread(loadout.current);
   const targetGap = loadout.current === 'knife' ? 4
     : Math.tan(spreadNext * Math.PI / 180) / Math.tan(camera.fov * Math.PI / 360) * (window.innerHeight / 2);
   crosshairGap += (Math.max(4, targetGap) - crosshairGap) * Math.min(1, dt * 18);
@@ -2132,10 +2676,14 @@ function updateShooting(dt) {
   const knifeOut = loadout.current === 'knife';
   ammoCountEl.style.display = knifeOut ? 'none' : '';
   const knifeName = KNIFE_SKINS[knifeSkin].name;
-  weaponNameEl.textContent = knifeOut ? knifeName : 'A-K';
-  slotHintEl.textContent = `1 A-K · 3 ${knifeName}`;
-  document.getElementById('ammo-cur').textContent = weapon.ammo;
-  document.getElementById('reload-text').textContent = knifeOut ? '' : weapon.reloading > 0 ? 'RELOADING' : (weapon.ammo === 0 ? 'PRESS R' : '');
+  const cur = loadout.current;
+  weaponNameEl.textContent = knifeOut ? knifeName : GUNS[cur].name;
+  slotHintEl.textContent = `1 ${GUNS[primaryGun].name} · 3 ${knifeName} · B 무기 변경`;
+  const g = cur === 'shotgun' ? { ammo: sg.ammo, mag: GUNS.shotgun.mag, rl: sg.reloading }
+    : cur === 'sniper' ? { ammo: sr.ammo, mag: GUNS.sniper.mag, rl: sr.reloading } : { ammo: weapon.ammo, mag: WEAPON.magSize, rl: weapon.reloading };
+  document.getElementById('ammo-cur').textContent = g.ammo;
+  document.querySelector('#ammo-count .max').textContent = ' / ' + g.mag;
+  document.getElementById('reload-text').textContent = knifeOut ? '' : g.rl > 0 ? 'RELOADING' : (g.ammo === 0 ? 'PRESS R' : '');
 }
 
 playerGroup.position.set(0, 0, 0);
@@ -2397,7 +2945,7 @@ function update(dt) {
         player.velocity.x *= factor;
         player.velocity.z *= factor;
       }
-      const weaponSpeedMul = loadout.current === 'knife' ? KNIFE.speedMul : 1;
+      const weaponSpeedMul = gunSpeedMul(loadout.current);
       const crouchMul = 1 + (CONFIG.crouchSpeedMul - 1) * player.crouch;
       const targetSpeed = CONFIG.walkSpeed * weaponSpeedMul * crouchMul * (1 + (ADS.speedMul - 1) * adsEase());
       const accel = CONFIG.groundAccel;
@@ -2607,7 +3155,8 @@ function showOnly(el) {
 // ── P2P: the room creator's browser IS the server (same rules/messages as server.js); everyone else connects
 // to it directly with WebRTC. PeerJS's free public broker is only used so players can find each other by code.
 const PEER_PREFIX = 'chanchan-fps-v1-';
-const RULES = { winScore: 5, prestart: 3, roundTime: 100, post: 3, maxHit: 150 };
+const RULES = { winScore: 5, prestart: 3, roundTime: 100, post: 3, maxHit: 260 };
+const NET_WEAPONS = ['rifle', 'shotgun', 'sniper', 'knife'];
 const MODES = { '5v5': 5 };   // players per team (one room size; any split from 1v1 up to 5v5 can start)
 const ROOM_MODE = '5v5';
 const SPAWNS = {
@@ -2812,7 +3361,7 @@ function createHostRoom(code, mode, type = 'elim') {
         break;
       case 'state':
         if (room.phase === 'lobby' || me.dead || !Array.isArray(m.p)) return;
-        me.state = { p: m.p.slice(0, 3).map(Number), yaw: +m.yaw || 0, pitch: +m.pitch || 0, w: m.w === 'knife' ? 'knife' : 'rifle', ads: !!m.ads,
+        me.state = { p: m.p.slice(0, 3).map(Number), yaw: +m.yaw || 0, pitch: +m.pitch || 0, w: NET_WEAPONS.includes(m.w) ? m.w : 'rifle', ads: !!m.ads,
           cr: Math.max(0, Math.min(1, +m.cr || 0)) };
         { const act = m.act === 'plant' || m.act === 'defuse' ? m.act : null;
           if (act !== me.act) { me.act = act; me.actT = 0; } }
@@ -2833,7 +3382,7 @@ function createHostRoom(code, mode, type = 'elim') {
           target.dead = true;
           target.act = null; target.actT = 0;
           dropBomb(target);
-          broadcast({ t: 'kill', killer: id, victim: target.id, head: !!m.head, w: m.w === 'knife' ? 'knife' : 'rifle' });
+          broadcast({ t: 'kill', killer: id, victim: target.id, head: !!m.head, w: NET_WEAPONS.includes(m.w) ? m.w : 'rifle' });
           checkRoundOver();
         }
         break;
@@ -2956,13 +3505,21 @@ function makeAvatar(p) {
   gun.position.set(0, -0.5, 0.05);
   gun.rotation.x = Math.PI / 2;      // the arm points forward, so the gun lines up with it
   d.userData.armR.add(gun);
+  const sgun = new THREE.Group();     // double barrel
+  part(sgun, 0.08, 0.05, 0.55, 0x2e2c2a, 0, 0.01, 0.15);
+  part(sgun, 0.05, 0.08, 0.26, C.wood, 0, -0.03, -0.24);
+  const snip = new THREE.Group();     // sniper with scope
+  part(snip, 0.05, 0.06, 0.8, C_AWP, 0, 0, 0.18);
+  part(snip, 0.045, 0.045, 0.22, 0x2e2c2a, 0, 0.065, 0.05);
+  for (const g of [sgun, snip]) { g.position.copy(gun.position); g.rotation.copy(gun.rotation); g.visible = false; d.userData.armR.add(g); }
+  d.userData.guns = { rifle: gun, shotgun: sgun, sniper: snip };
   const flash = new THREE.Mesh(new THREE.CircleGeometry(0.12, 8), new THREE.MeshBasicMaterial({ color: 0xffe066, side: THREE.DoubleSide }));
   flash.position.set(0, -0.5, 0.5);
   flash.rotation.x = Math.PI / 2;
   flash.visible = false;
   flash.raycast = () => {};
   d.userData.armR.add(flash);
-  gun.traverse(o => { if (o.isMesh) o.userData.dummy = d; });   // hitting their gun counts as a body hit
+  for (const g of Object.values(d.userData.guns)) g.traverse(o => { if (o.isMesh) o.userData.dummy = d; });   // hitting their gun counts as a body hit
   d.userData.tag = makeNameTag(p.name, p.team);
   d.add(d.userData.tag);
   d.userData.remoteId = p.id;
@@ -3423,6 +3980,7 @@ function spawnLocal(s) {
   player.hp = 100; player.dead = false;
   player.isDodging = false;
   weapon.ammo = WEAPON.magSize; weapon.reloading = 0; weapon.spray = 0;
+  resetGuns();
   knifeState.anim = null;
   $('dead-msg').style.display = 'none';
 }
@@ -3823,7 +4381,7 @@ function updateNet(dt) {
     u.armR.rotation.x = aim + (u.swingT > 0 ? Math.sin(u.swingT * 18) * 0.8 : 0);
     u.armL.rotation.x = aim + 0.15;
     u.armL.rotation.z = -0.5;
-    u.gun.visible = u.weapon !== 'knife';
+    for (const [w, g] of Object.entries(u.guns)) g.visible = u.weapon === w;
     u.flashT = Math.max(0, u.flashT - dt);
     u.flash.visible = u.flashT > 0;
     u.hitT = Math.max(0, (u.hitT || 0) - dt);
