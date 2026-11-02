@@ -727,6 +727,7 @@ const MAPS = {
       [-16, 2, 2, 8, 4, 4, WALL2], [16, 2, 2, 8, 4, 4, WALL2],                 // link | tunnel, link | long
       [-6, 2, 10, 6, 4, 12, WALL], [6, 2, 10, 6, 4, 12, WALL],                 // mid | sites
       [-7.5, 2, 18, 3, 4, 4, WALL], [7.5, 2, 18, 3, 4, 4, WALL],               // CT spawn | backsites
+      [0, 2, 17.5, 7, 4, 1, 0x9c8f78],                                         // wall at the top of mid: spawns can't see each other
       // A long doors (gap in the middle)
       [21, 2, -4.5, 2, 4, 1, 0x9c8f78], [25, 2, -4.5, 2, 4, 1, 0x9c8f78],
       // cover
@@ -881,7 +882,7 @@ const dummies = [];
   });
 
 // ── SHOOTING ──
-const WEAPON = { magSize: 30, fireInterval: 0.1, bodyDmg: 30, headDmg: 60, range: 200 };
+const WEAPON = { magSize: 30, fireInterval: 0.1, bodyDmg: 22, headDmg: 55, range: 200 };   // 5 body shots (0.4 s) or 2 heads
 const weapon = { ammo: WEAPON.magSize, cooldown: 0, reloading: 0, reload: RELOADS.tac, kick: 0, spray: 0 };
 
 // Recoil is tracked as an offset on top of the player's aim so it can be recovered after a burst.
@@ -1160,7 +1161,7 @@ function fireShot() {
 }
 
 // ── KNIFE: 기본칼 (modeled after Valorant's Xenohunter knife) ──
-const KNIFE = { name: '기본칼', lightDmg: 50, heavyDmg: 75, backstabDmg: 150, lightRange: 2.0, heavyRange: 1.7, speedMul: 1.12 };
+const KNIFE = { name: '기본칼', lightDmg: 35, heavyDmg: 55, backstabDmg: 150, lightRange: 2.0, heavyRange: 1.7, speedMul: 1.12 };
 
 const knifeRoot = new THREE.Group();
 vmCamera.add(knifeRoot);
