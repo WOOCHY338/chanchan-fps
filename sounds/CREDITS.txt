@@ -1,0 +1,16 @@
+Sound credits
+
+ak47_near.wav  (AK gunshots, single shots sliced out in code)
+  "The Free Firearm Sound Library" (Prepared SFX Library, AK-47 / C_28P.wav)
+  https://opengameart.org/content/the-free-firearm-sound-library
+  CC0 - no rights reserved, credit not required.
+
+ak_reload.wav (assaultriflereload1.wav), ak_rack.wav (gunreload1.wav)
+  "Gun reload sounds" by SpringySpringo on OpenGameArt.org - CC0
+  https://opengameart.org/content/gun-reload-sounds
+
+footstep00-09.ogg, knifeSlice.ogg, knifeSlice2.ogg, drawKnife1-3.ogg, metalClick.ogg, cloth1.ogg, cloth2.ogg
+  "50 RPG sound effects" by Kenney (www.kenney.nl) on OpenGameArt.org - CC0
+  https://opengameart.org/content/50-rpg-sound-effects
+
+Hit marker, headshot and kill tones are generated in code (Web Audio).

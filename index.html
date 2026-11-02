@@ -1,0 +1,2760 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChanChan TPS</title>
+<script src="lib/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { overflow: hidden; background: #222; font-family: 'Segoe UI', sans-serif; }
+canvas { display: block; width: 100vw; height: 100vh; }
+
+#crosshair {
+  position: fixed; top: 50%; left: 50%; width: 0; height: 0;
+  pointer-events: none; z-index: 10; --gap: 4px;
+}
+#crosshair i {
+  position: absolute; background: rgba(255,255,255,0.9);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+}
+#crosshair .t { width: 2px; height: 8px; left: -1px; bottom: var(--gap); }
+#crosshair .b { width: 2px; height: 8px; left: -1px; top: var(--gap); }
+#crosshair .l { width: 8px; height: 2px; top: -1px; right: var(--gap); }
+#crosshair .r { width: 8px; height: 2px; top: -1px; left: var(--gap); }
+
+#hud {
+  position: fixed; bottom: 20px; left: 20px; color: #fff; font-size: 13px;
+  background: rgba(0,0,0,0.4); padding: 12px 16px; border-radius: 8px;
+  pointer-events: none; z-index: 10; line-height: 1.6;
+}
+
+#settings-panel {
+  position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.7);
+  padding: 16px 20px; border-radius: 10px; color: #fff; font-size: 13px;
+  z-index: 20; display: none; min-width: 240px;
+}
+#settings-panel.visible { display: block; }
+#settings-panel label { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
+#settings-panel input[type=range] { width: 120px; }
+#settings-panel .val { width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+
+#start-screen {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: #fff; z-index: 100; cursor: pointer; pointer-events: none;
+}
+#start-screen h1 { font-size: 36px; margin-bottom: 12px; }
+#start-screen p { font-size: 16px; opacity: 0.7; }
+#start-screen.hidden { display: none; }
+
+#hitmarker {
+  position: fixed; top: 50%; left: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+  pointer-events: none; z-index: 11; opacity: 0; transition: opacity 0.12s;
+}
+#hitmarker::before, #hitmarker::after {
+  content: ''; position: absolute; left: 10px; top: -2px; width: 2px; height: 26px;
+  background: linear-gradient(#fff 0 35%, transparent 35% 65%, #fff 65%);
+}
+#hitmarker::before { transform: rotate(45deg); }
+#hitmarker::after { transform: rotate(-45deg); }
+#hitmarker.head::before, #hitmarker.head::after { background: linear-gradient(#ff4a3d 0 35%, transparent 35% 65%, #ff4a3d 65%); }
+#hitmarker.show { opacity: 1; transition: none; }
+
+#ammo {
+  position: fixed; bottom: 20px; right: 24px; color: #fff; z-index: 10; pointer-events: none;
+  font-weight: 700; text-shadow: 2px 2px 0 rgba(0,0,0,0.5); text-align: right;
+}
+#ammo .cur { font-size: 40px; }
+#ammo .max { font-size: 18px; opacity: 0.7; }
+#ammo .reload { font-size: 14px; color: #ffcc00; height: 18px; }
+#ammo .wname { font-size: 16px; opacity: 0.9; }
+#ammo .slots { font-size: 11px; font-weight: 500; opacity: 0.55; margin-top: 2px; }
+
+#killfeed {
+  position: fixed; top: 58%; left: 50%; transform: translateX(-50%); color: #fff; z-index: 10;
+  font-weight: 800; font-size: 18px; letter-spacing: 1px; pointer-events: none;
+  text-shadow: 2px 2px 0 rgba(0,0,0,0.6); opacity: 0; transition: opacity 0.4s;
+}
+#killfeed.show { opacity: 1; transition: none; }
+
+/* ── menu / lobby / match HUD ── */
+.overlay {
+  position: fixed; inset: 0; background: rgba(12,14,18,0.88); z-index: 120;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; gap: 14px;
+}
+.overlay.hidden { display: none; }
+.overlay h1 { font-size: 40px; letter-spacing: 1px; }
+.overlay h2 { font-size: 22px; }
+.overlay .sub { opacity: 0.65; font-size: 14px; }
+.overlay .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
+.btn {
+  background: #f2efe6; color: #1a1410; border: 2px solid #1a1410; border-radius: 6px; padding: 10px 18px;
+  font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 3px 3px 0 #1a1410; font-family: inherit;
+}
+.btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 #1a1410; }
+.btn.blue { background: #6f9be6; } .btn.red { background: #e07a72; } .btn.ghost { background: #3a3d44; color: #fff; }
+.btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+.field {
+  background: #22252b; color: #fff; border: 2px solid #555; border-radius: 6px; padding: 9px 12px; font-size: 15px;
+  font-family: inherit; width: 150px;
+}
+#menu-error { color: #ff8a80; min-height: 18px; font-size: 14px; }
+#lobby-code { font-size: 46px; font-weight: 800; letter-spacing: 8px; font-family: monospace; }
+.teams { display: flex; gap: 18px; }
+.team-box { width: 200px; min-height: 120px; border-radius: 8px; padding: 12px; border: 2px solid #1a1410; }
+.team-box.blue { background: rgba(74,127,217,0.35); } .team-box.red { background: rgba(217,83,74,0.35); }
+.team-box h3 { margin-bottom: 8px; font-size: 16px; }
+.team-box div { padding: 3px 0; font-size: 15px; }
+
+#scorebar {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 12; pointer-events: none;
+  display: none; align-items: center; gap: 12px; color: #fff; font-weight: 800; text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+}
+#scorebar.show { display: flex; }
+#scorebar .s { font-size: 30px; min-width: 36px; text-align: center; padding: 2px 10px; border-radius: 6px; }
+#scorebar .s.blue { background: rgba(74,127,217,0.85); } #scorebar .s.red { background: rgba(217,83,74,0.85); }
+#scorebar .mid { text-align: center; font-size: 14px; line-height: 1.3; min-width: 90px; }
+#scorebar .mid b { font-size: 22px; display: block; }
+#banner {
+  position: fixed; top: 30%; left: 50%; transform: translateX(-50%); z-index: 13; pointer-events: none; color: #fff;
+  font-size: 44px; font-weight: 900; text-shadow: 3px 3px 0 rgba(0,0,0,0.6); text-align: center; opacity: 0; transition: opacity 0.3s;
+}
+#banner.show { opacity: 1; }
+#banner small { display: block; font-size: 18px; font-weight: 700; opacity: 0.85; margin-top: 6px; }
+#feed { position: fixed; top: 60px; right: 18px; z-index: 12; pointer-events: none; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+#feed div { background: rgba(0,0,0,0.55); color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; }
+#feed .blue { color: #8fb6ff; } #feed .red { color: #ff9a92; }
+#hurt { position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(200,20,20,0.75) 100%); }
+#dead-msg { position: fixed; top: 42%; left: 50%; transform: translateX(-50%); z-index: 13; pointer-events: none;
+  color: #fff; font-size: 26px; font-weight: 800; text-shadow: 2px 2px 0 rgba(0,0,0,0.6); display: none; text-align: center; }
+
+#debug-info {
+  position: fixed; top: 20px; left: 20px; color: rgba(255,255,255,0.5);
+  font-size: 11px; font-family: monospace; z-index: 10; pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+<div id="hitmarker"></div>
+<div id="killfeed"></div>
+<div id="ammo"><div class="reload" id="reload-text"></div><div class="wname" id="weapon-name">AK</div><div id="ammo-count"><span class="cur" id="ammo-cur">30</span><span class="max"> / 30</span></div><div class="slots" id="slot-hint">1 AK · 3 기본칼</div></div>
+
+<div id="hud">
+  <div>HP: <span id="hp">100</span> / 100</div>
+  <div>Speed: <span id="speed">0.0</span></div>
+  <div id="sprint-indicator" style="color:#ffcc00;display:none">SPRINT</div>
+</div>
+
+<div id="settings-panel">
+  <div style="font-weight:600;margin-bottom:8px">Settings (ESC)</div>
+  <label>Sensitivity <input type="range" id="sens-slider" min="0.01" max="10" step="0.01" value="0.4"> <input type="number" id="sens-input" min="0.01" max="10" step="0.01" value="0.4" style="width:52px;background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:1px 4px;font-size:12px;text-align:right"></label>
+  <label>Camera Dist <input type="range" id="dist-slider" min="1" max="8" step="0.1" value="3.5"> <span class="val" id="dist-val">3.5</span></label>
+  <label>FOV <input type="range" id="fov-slider" min="50" max="110" step="1" value="65"> <span class="val" id="fov-val">65</span></label>
+  <label>Invert Y <input type="checkbox" id="invert-y"></label>
+  <label>Volume <input type="range" id="vol-slider" min="0" max="1" step="0.05" value="0.7"> <span class="val" id="vol-val">70</span></label>
+  <label>칼 <select id="knife-select" style="background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:12px">
+    <option value="basic">기본칼</option>
+    <option value="karambit">카람빗</option>
+  </select></label>
+  <button class="btn ghost" id="btn-to-menu" style="margin-top:10px;width:100%;padding:7px">메뉴로 나가기</button>
+</div>
+
+<div id="start-screen" class="hidden">
+  <h1>ChanChan</h1>
+  <p>클릭해서 계속</p>
+</div>
+
+<div id="menu" class="overlay">
+  <h1>ChanChan FPS</h1>
+  <div class="row"><input id="name-input" class="field" maxlength="12" placeholder="닉네임"></div>
+  <div class="row">
+    <button class="btn" id="btn-practice">연습장</button>
+    <button class="btn blue" id="btn-create-1v1">방 만들기 · 1대1</button>
+    <button class="btn red" id="btn-create-2v2">방 만들기 · 2대2</button>
+  </div>
+  <div class="row">
+    <input id="code-input" class="field" maxlength="4" placeholder="방 코드" style="text-transform:uppercase;width:120px">
+    <button class="btn ghost" id="btn-join">참가</button>
+  </div>
+  <div id="menu-error"></div>
+  <div class="sub">5점 먼저 내는 팀 승리 · 서버: <span id="server-addr"></span></div>
+</div>
+
+<div id="lobby" class="overlay hidden">
+  <div class="sub" id="lobby-mode">1대1</div>
+  <div id="lobby-code">----</div>
+  <div class="sub">친구에게 이 코드를 알려주세요</div>
+  <div class="teams">
+    <div class="team-box blue"><h3>블루</h3><div id="lobby-blue"></div></div>
+    <div class="team-box red"><h3>레드</h3><div id="lobby-red"></div></div>
+  </div>
+  <div class="row">
+    <button class="btn ghost" id="btn-swap">팀 바꾸기</button>
+    <button class="btn" id="btn-start">시작</button>
+    <button class="btn ghost" id="btn-leave">나가기</button>
+  </div>
+  <div id="lobby-msg" class="sub"></div>
+</div>
+
+<div id="scorebar"><span class="s blue" id="score-blue">0</span><div class="mid"><b id="round-timer">1:40</b><span id="round-label">ROUND 1</span></div><span class="s red" id="score-red">0</span></div>
+<div id="banner"></div>
+<div id="feed"></div>
+<div id="hurt"></div>
+<div id="dead-msg">사망<br><small style="font-size:16px">다음 라운드까지 관전 중</small></div>
+
+<div id="debug-info"></div>
+
+<script>
+// ── CONFIG ──
+const CONFIG = {
+  sensitivity: 0.4,
+  cameraDistance: 3.5,
+  fov: 65,
+  invertY: false,
+  walkSpeed: 7,
+  sprintSpeed: 7,
+  jumpForce: 7,
+  dodgeSpeed: 17,
+  dodgeDuration: 0.3,
+  dodgeCooldown: 0.45, // counted from the end of the dodge
+  gravity: -28,
+  groundFriction: 0.92,
+  airFriction: 0.998,
+  airAccel: 2.5,
+  groundAccel: 11,
+  shoulderOffset: new THREE.Vector3(0.4, 1.5, 0),
+  cameraMinPitch: -89,
+  cameraMaxPitch: 89,
+  cameraCollisionRadius: 0.25,
+};
+
+// ── AUDIO ── (files in sounds/, credits in sounds/CREDITS.txt)
+const SFX = (() => {
+  let ac = null, master = null;
+  const buffers = {};
+  let volume = 0.7;
+  const FILES = {
+    ak: 'ak47_near.wav', reload: 'ak_reload.wav', rack: 'ak_rack.wav', click: 'metalClick.ogg',
+    slice1: 'knifeSlice.ogg', slice2: 'knifeSlice2.ogg',
+    draw1: 'drawKnife1.ogg', draw2: 'drawKnife2.ogg', draw3: 'drawKnife3.ogg',
+    cloth1: 'cloth1.ogg', cloth2: 'cloth2.ogg',
+    ...Object.fromEntries([...Array(10)].map((_, i) => ['step' + i, `footstep0${i}.ogg`])),
+  };
+  // single AK-47 shots (near, in front of the shooter) cut out of the Free Firearm Sound Library take
+  const SHOT_ONSETS = [0.61, 3.255, 6.02, 9.155];
+
+  function sliceShot(src, onset) {
+    const sr = src.sampleRate, len = Math.floor(sr * 0.9), fade = Math.floor(sr * 0.4);
+    const start = Math.max(0, Math.floor((onset - 0.01) * sr));
+    const out = ac.createBuffer(src.numberOfChannels, len, sr);
+    let peak = 0;
+    for (let c = 0; c < src.numberOfChannels; c++) {
+      const s = src.getChannelData(c), d = out.getChannelData(c);
+      for (let i = 0; i < len; i++) { d[i] = s[start + i] || 0; peak = Math.max(peak, Math.abs(d[i])); }
+    }
+    for (let c = 0; c < out.numberOfChannels; c++) {
+      const d = out.getChannelData(c);
+      for (let i = 0; i < len; i++) {
+        const tail = i > len - fade ? (len - i) / fade : 1;
+        d[i] = d[i] / peak * 0.95 * tail;
+      }
+    }
+    return out;
+  }
+
+  async function load() {
+    await Promise.all(Object.entries(FILES).map(async ([k, f]) => {
+      try {
+        const data = await fetch('sounds/' + f).then(r => r.arrayBuffer());
+        buffers[k] = await ac.decodeAudioData(data);
+      } catch (e) { console.warn('sound failed to load', f, e); }
+    }));
+    if (buffers.ak) buffers.shots = SHOT_ONSETS.map(t => sliceShot(buffers.ak, t));
+  }
+
+  // created on the first click (browsers block audio until the user interacts)
+  function unlock() {
+    if (!ac) {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain();
+      master.gain.value = volume;
+      master.connect(ac.destination);
+      load();
+    }
+    if (ac.state === 'suspended') ac.resume();
+  }
+
+  // play a buffer (or one of an array at random); returns the source so scheduled sounds can be stopped
+  function play(name, { vol = 1, rate = 1, jitter = 0, delay = 0, offset = 0 } = {}) {
+    if (!ac) return null;
+    let buf = buffers[name];
+    if (Array.isArray(buf)) buf = buf[Math.floor(Math.random() * buf.length)];
+    if (!buf) return null;
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate * (1 + (Math.random() - 0.5) * 2 * jitter);
+    const g = ac.createGain();
+    g.gain.value = vol;
+    src.connect(g).connect(master);
+    src.start(ac.currentTime + Math.max(0, delay), offset);
+    return src;
+  }
+
+  // short generated tones for UI feedback (hit marker, headshot, kill)
+  function tone(freq, dur, vol, delay = 0, type = 'square') {
+    if (!ac) return;
+    const t = ac.currentTime + delay;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(master);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  function setVolume(v) {
+    volume = v;
+    if (master) master.gain.value = v;
+  }
+
+  return { unlock, play, tone, setVolume, get volume() { return volume; } };
+})();
+
+const sfx = {
+  shot: () => SFX.play('shots', { vol: 0.5, jitter: 0.03 }),
+  dryFire: () => SFX.play('click', { vol: 0.6, rate: 1.4 }),
+  hit: head => head ? (SFX.tone(1900, 0.06, 0.12), SFX.tone(2600, 0.08, 0.1, 0.035)) : SFX.tone(1500, 0.05, 0.1),
+  kill: () => { SFX.tone(880, 0.09, 0.12, 0, 'triangle'); SFX.tone(1320, 0.16, 0.12, 0.08, 'triangle'); },
+  step: (vol = 0.3) => SFX.play('step' + Math.floor(Math.random() * 10), { vol, jitter: 0.06 }),
+  jump: () => SFX.play('cloth1', { vol: 0.35, jitter: 0.05 }),
+  land: () => { sfx.step(0.45); sfx.step(0.3); },
+  dodge: () => { SFX.play('cloth2', { vol: 0.45, rate: 1.2 }); sfx.step(0.35); },
+  rifleRaise: () => SFX.play('click', { vol: 0.35, rate: 0.9 }),
+};
+// reload sounds are scheduled on the reload timeline; canceling stops them
+let reloadSounds = [];
+let stepDistance = 0;
+function playReloadSounds(empty) {
+  stopReloadSounds();
+  // reload clip's mag-seat click is at 1.27s; our mag seats at 1.4s
+  reloadSounds.push(SFX.play('reload', { vol: 0.8, delay: 0.13 }));
+  // rack clip's bolt slam is at 1.29s; our handle is released at 1.86s (play only the slam part)
+  if (empty) reloadSounds.push(SFX.play('rack', { vol: 0.75, delay: 1.57, offset: 1.0 }));
+  reloadSounds = reloadSounds.filter(Boolean);
+}
+function stopReloadSounds() {
+  for (const s of reloadSounds) { try { s.stop(); } catch (e) { /* already ended */ } }
+  reloadSounds = [];
+}
+// knife swing/draw sounds, timed so each swoosh peaks on the swing's hit frame
+function playKnifeSound(name) {
+  // swoosh peaks: slice1 at 0.23s, slice2 at 0.01s — line them up with this knife's hit frame
+  const hitAt = knifeAnim(name).hitAt || 0;
+  if (name === 'lightA') SFX.play('slice1', { vol: 0.7, delay: hitAt - 0.23, offset: Math.max(0, 0.23 - hitAt), jitter: 0.05 });
+  if (name === 'lightB') SFX.play('slice2', { vol: 0.7, delay: hitAt - 0.01, jitter: 0.05 });
+  if (name === 'heavy') SFX.play('slice1', { vol: 0.85, rate: 0.85, delay: hitAt - 0.27, offset: Math.max(0, 0.27 - hitAt) });
+  if (name === 'draw') {
+    SFX.play(['draw1', 'draw2', 'draw3'][Math.floor(Math.random() * 3)], { vol: 4, delay: 0.02 });
+    SFX.play('click', { vol: 0.35, rate: 1.3, delay: 0.32 });   // catch
+  }
+  if (name === 'inspect') SFX.play('cloth1', { vol: 0.25, delay: 0.1 });
+}
+
+// ── THREE.JS SETUP ──
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.autoClear = false;
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+scene.fog = new THREE.Fog(0x87ceeb, 40, 120);
+
+const camera = new THREE.PerspectiveCamera(CONFIG.fov, window.innerWidth / window.innerHeight, 0.1, 500);
+
+scene.add(camera);
+
+// ── VIEWMODEL (Paperman-style paper AK + arms, separate render pass so it never clips walls) ──
+const vmScene = new THREE.Scene();
+const vmCamera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.01, 10);
+vmScene.add(vmCamera);
+vmScene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const vmLight = new THREE.DirectionalLight(0xfff3e0, 1.1);
+vmLight.position.set(1, 2, 1.5);
+vmScene.add(vmLight);
+
+const viewmodelGroup = new THREE.Group();
+vmCamera.add(viewmodelGroup);
+
+const paperTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 1400; i++) {
+    const v = 215 + Math.random() * 40;
+    g.fillStyle = `rgb(${v},${v},${v - 6})`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 2, 1);
+  }
+  g.strokeStyle = 'rgba(120,110,90,0.12)';
+  for (let i = 0; i < 18; i++) {
+    g.beginPath();
+    const x = Math.random() * 128, y = Math.random() * 128;
+    g.moveTo(x, y);
+    g.lineTo(x + (Math.random() - 0.5) * 40, y + (Math.random() - 0.5) * 10);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+})();
+
+const inkMat = new THREE.LineBasicMaterial({ color: 0x1a1410 });
+const vmMats = {};
+function vmMat(color) {
+  if (!vmMats[color]) vmMats[color] = new THREE.MeshLambertMaterial({ color, map: paperTex, flatShading: true });
+  return vmMats[color];
+}
+function inked(geo, color) {
+  const mesh = new THREE.Mesh(geo, vmMat(color));
+  mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), inkMat));
+  return mesh;
+}
+function part(parent, w, h, d, color, x, y, z, rx = 0, ry = 0, rz = 0) {
+  const m = inked(new THREE.BoxGeometry(w, h, d), color);
+  m.position.set(x, y, z);
+  m.rotation.set(rx, ry, rz);
+  parent.add(m);
+  return m;
+}
+function tube(parent, r, len, color, x, y, z) {
+  const m = inked(new THREE.CylinderGeometry(r, r, len, 8), color);
+  m.rotation.x = Math.PI / 2;
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+function limb(parent, from, to, w, h, color) {
+  const len = from.distanceTo(to);
+  const m = inked(new THREE.BoxGeometry(w, h, len), color);
+  m.position.copy(from).add(to).multiplyScalar(0.5);
+  m.lookAt(to);
+  parent.add(m);
+  return m;
+}
+
+const C = {
+  metal: 0x45413d, metalLight: 0x5e5955, wood: 0xc8682c, woodDark: 0x8e4520,
+  mag: 0xb8561f, sleeve: 0x5d6b3c, sleeveDark: 0x47532c, skin: 0xf2c9a0, glove: 0x2f2a26,
+};
+
+const gun = new THREE.Group();
+viewmodelGroup.add(gun);
+part(gun, 0.07, 0.1, 0.4, C.metal, 0, 0, -0.08);                       // receiver
+part(gun, 0.064, 0.035, 0.36, C.metalLight, 0, 0.065, -0.09);           // dust cover
+const chargingHandle = part(gun, 0.04, 0.022, 0.03, C.metalLight, 0.05, 0.055, -0.18);
+// rear sight notch: two ears whose tops line up with the front post tip (y 0.1125)
+part(gun, 0.014, 0.035, 0.03, C.metal, -0.017, 0.095, -0.24);
+part(gun, 0.014, 0.035, 0.03, C.metal, 0.017, 0.095, -0.24);
+part(gun, 0.085, 0.085, 0.24, C.wood, 0, -0.005, -0.4);                 // lower handguard
+part(gun, 0.06, 0.045, 0.2, C.wood, 0, 0.06, -0.39);                    // upper handguard
+tube(gun, 0.016, 0.34, C.metal, 0, 0.03, -0.68);                        // barrel
+tube(gun, 0.012, 0.16, C.metalLight, 0, 0.075, -0.56);                  // gas tube
+part(gun, 0.016, 0.075, 0.025, C.metal, 0, 0.075, -0.78);               // front sight
+tube(gun, 0.024, 0.07, C.metal, 0, 0.03, -0.87);                        // muzzle
+const magGroup = new THREE.Group();
+gun.add(magGroup);
+part(magGroup, 0.05, 0.13, 0.075, C.mag, 0, -0.11, -0.19, 0.2);         // magazine top
+part(magGroup, 0.048, 0.13, 0.075, C.mag, 0, -0.225, -0.24, 0.55);      // magazine bottom (curved)
+part(gun, 0.05, 0.14, 0.06, C.woodDark, 0, -0.1, 0.06, -0.35);          // pistol grip
+part(gun, 0.012, 0.015, 0.09, C.metal, 0, -0.07, -0.02);                // trigger guard
+part(gun, 0.06, 0.11, 0.3, C.wood, 0, -0.04, 0.26, 0.12);               // stock
+
+// Right arm: hand on pistol grip, sleeve trailing back-right off screen
+const rHand = part(gun, 0.08, 0.09, 0.11, C.glove, 0.005, -0.1, 0.07, -0.35);
+part(gun, 0.03, 0.04, 0.07, C.skin, 0.005, -0.05, 0.12, -0.2);         // wrist gap
+limb(gun, new THREE.Vector3(0.03, -0.11, 0.14), new THREE.Vector3(0.2, -0.32, 0.55), 0.11, 0.1, C.sleeve);
+part(gun, 0.13, 0.025, 0.06, C.sleeveDark, 0.05, -0.15, 0.22, 0.6, 0, -0.5); // cuff
+
+// Left arm: hand under handguard, sleeve going back-left
+const leftArm = new THREE.Group();
+gun.add(leftArm);
+part(leftArm, 0.1, 0.07, 0.13, C.glove, -0.01, -0.06, -0.42);
+part(leftArm, 0.03, 0.06, 0.1, C.glove, 0.04, -0.01, -0.42);            // fingers wrap
+
+// Left forearm is rebuilt each frame between wrist and elbow so it never cuts through the gun
+const L_WRIST = new THREE.Vector3(-0.04, -0.09, -0.38);
+const L_ELBOW_REST = new THREE.Vector3(-0.3, -0.4, 0.05);
+const leftForearm = new THREE.Group();
+gun.add(leftForearm);
+const leftSleeve = inked(new THREE.BoxGeometry(0.11, 0.1, 1), C.sleeve);
+leftForearm.add(leftSleeve);
+part(leftForearm, 0.13, 0.115, 0.03, C.sleeveDark, 0, 0, 0.07);          // cuff
+const _fz = new THREE.Vector3(0, 0, 1), _fa = new THREE.Vector3(), _fb = new THREE.Vector3();
+function poseLeftForearm(lh, el) {
+  _fa.set(L_WRIST.x + lh[0], L_WRIST.y + lh[1], L_WRIST.z + lh[2]);
+  _fb.set(el[0], el[1], el[2]);
+  const len = _fa.distanceTo(_fb);
+  leftForearm.position.copy(_fa);
+  leftForearm.quaternion.setFromUnitVectors(_fz, _fb.sub(_fa).normalize());
+  leftSleeve.scale.z = len;
+  leftSleeve.position.z = len / 2;
+}
+
+// Kastov-style reload: tilt & cant up, pull mag down out of view, bring fresh one, slam, swing back.
+// Each key: p (0..1), gun rot/pos, mag offset, left hand offset.
+const H = [0.01, -0.12, 0.22]; // left hand offset that puts it on the magazine
+const RELOAD_TAC_KEYS = [
+  { p: 0.00, gr: [0, 0, 0],          gp: [0, 0, 0],            mag: [0, 0, 0],          lh: [0, 0, 0] },
+  { p: 0.16, gr: [0.55, 0.45, -0.6],  gp: [-0.06, 0, -0.1],     mag: [0, 0, 0],          lh: [0, 0, 0] },
+  { p: 0.27, gr: [0.56, 0.45, -0.6],  gp: [-0.06, 0, -0.1],     mag: [0, 0, 0],          lh: H },
+  { p: 0.33, gr: [0.6, 0.46, -0.63],  gp: [-0.06, 0.01, -0.1],  mag: [0, -0.12, 0.03],   lh: [H[0], H[1] - 0.12, H[2] + 0.03] },
+  { p: 0.42, gr: [0.56, 0.45, -0.6],  gp: [-0.06, 0, -0.1],     mag: [0, -0.5, 0.18],    lh: [H[0], H[1] - 0.5, H[2] + 0.18] },
+  { p: 0.50, gr: [0.56, 0.45, -0.6],  gp: [-0.06, 0, -0.1],     mag: [0, -0.5, 0.18],    lh: [H[0], H[1] - 0.5, H[2] + 0.18] },
+  { p: 0.64, gr: [0.55, 0.45, -0.6],  gp: [-0.06, 0, -0.1],     mag: [0, -0.07, 0.02],   lh: [H[0], H[1] - 0.07, H[2] + 0.02] },
+  { p: 0.70, gr: [0.66, 0.47, -0.67], gp: [-0.06, 0.025, -0.1], mag: [0, 0, 0],          lh: H },
+  { p: 0.80, gr: [0.5, 0.42, -0.55],  gp: [-0.05, 0, -0.08],    mag: [0, 0, 0],          lh: [0, 0, 0] },
+  { p: 1.00, gr: [0, 0, 0],          gp: [0, 0, 0],            mag: [0, 0, 0],          lh: [0, 0, 0] },
+];
+// Empty reload: same mag swap (same timing in seconds), then left hand racks the charging handle.
+const CANT = [0.55, 0.45, -0.6], CANT_P = [-0.06, 0, -0.1];
+const ROLL = [0.3, 0.2, 1.2], ROLL_P = [-0.08, 0.02, -0.08];     // gun rolled left, right side facing up
+const RK = [0.1, 0.21, 0.24], RK_EL = [-0.22, 0.42, 0.14];      // left hand on the handle; elbow ends up low-left on screen
+const LIFT = [-0.12, 0.26, 0.18], LIFT_EL = [-0.32, 0.2, 0.15];  // hand up beside the gun's left side
+const OUT = [-0.11, -0.06, 0.22];    // hand pulled out left from the mag so it doesn't sweep through the receiver
+const BESIDE = [-0.11, 0.02, 0.02];  // hand left of the handguard, about to grab it again
+const RELOAD_EMPTY_KEYS = [
+  { p: 0.000, gr: [0, 0, 0],          gp: [0, 0, 0],            mag: [0, 0, 0],        lh: [0, 0, 0] },
+  { p: 0.123, gr: CANT,               gp: CANT_P,               mag: [0, 0, 0],        lh: [0, 0, 0] },
+  { p: 0.208, gr: [0.56, 0.45, -0.6], gp: CANT_P,               mag: [0, 0, 0],        lh: H },
+  { p: 0.254, gr: [0.6, 0.46, -0.63], gp: [-0.06, 0.01, -0.1],  mag: [0, -0.12, 0.03], lh: [H[0], H[1] - 0.12, H[2] + 0.03] },
+  { p: 0.323, gr: CANT,               gp: CANT_P,               mag: [0, -0.5, 0.18],  lh: [H[0], H[1] - 0.5, H[2] + 0.18] },
+  { p: 0.385, gr: CANT,               gp: CANT_P,               mag: [0, -0.5, 0.18],  lh: [H[0], H[1] - 0.5, H[2] + 0.18] },
+  { p: 0.492, gr: CANT,               gp: CANT_P,               mag: [0, -0.07, 0.02], lh: [H[0], H[1] - 0.07, H[2] + 0.02] },
+  { p: 0.538, gr: [0.66, 0.47, -0.67], gp: [-0.06, 0.025, -0.1], mag: [0, 0, 0],       lh: H },
+  // right hand rolls the gun left so the right-side handle faces up; left hand comes in from low-left
+  { p: 0.560, gr: [0.5, 0.35, -0.2],  gp: [-0.07, 0.01, -0.1],  mag: [0, 0, 0],        lh: OUT },
+  { p: 0.590, gr: [0.4, 0.25, 0.35],  gp: [-0.07, 0.01, -0.09], mag: [0, 0, 0],        lh: LIFT, el: LIFT_EL },
+  { p: 0.623, gr: ROLL,               gp: ROLL_P,               mag: [0, 0, 0],        lh: RK, el: RK_EL, ch: [0] },
+  { p: 0.685, gr: [0.27, 0.18, 1.25], gp: [-0.08, 0.02, -0.06], mag: [0, 0, 0],        lh: [RK[0], RK[1], RK[2] + 0.1], el: [RK_EL[0], RK_EL[1], RK_EL[2] + 0.1], ch: [0.1] },
+  { p: 0.715, gr: [0.34, 0.22, 1.15], gp: [-0.08, 0.03, -0.09], mag: [0, 0, 0],        lh: [RK[0] - 0.02, RK[1] + 0.06, RK[2] + 0.12], el: [RK_EL[0] - 0.02, RK_EL[1] + 0.03, RK_EL[2] + 0.11], ch: [0] }, // let go, handle snaps forward
+  { p: 0.755, gr: [0.35, 0.25, 0.5],  gp: [-0.06, 0.01, -0.08], mag: [0, 0, 0],        lh: LIFT, el: LIFT_EL },
+  { p: 0.790, gr: [0.32, 0.22, 0.25], gp: [-0.05, 0, -0.06],    mag: [0, 0, 0],        lh: BESIDE },
+  { p: 0.830, gr: [0.3, 0.2, 0.1],    gp: [-0.04, 0, -0.05],    mag: [0, 0, 0],        lh: [0, 0, 0] },
+  { p: 1.000, gr: [0, 0, 0],          gp: [0, 0, 0],            mag: [0, 0, 0],        lh: [0, 0, 0] },
+];
+const RELOADS = {
+  tac:   { keys: RELOAD_TAC_KEYS,   time: 2.0, fillP: 0.70,  readyP: 0.86 },
+  // fillP = mag seated (gun counts as loaded). Firing stays locked until readyP (after the rack) unless the reload is canceled.
+  empty: { keys: RELOAD_EMPTY_KEYS, time: 2.6, fillP: 0.538, readyP: 0.84 },
+};
+function sampleReload(keys, p) {
+  let i = 0;
+  while (i < keys.length - 2 && p > keys[i + 1].p) i++;
+  const a = keys[i], b = keys[i + 1];
+  let t = Math.min(1, Math.max(0, (p - a.p) / (b.p - a.p)));
+  t = t * t * (3 - 2 * t);
+  const mix = k => (a[k] || [0, 0, 0]).map((v, j) => v + ((b[k] || [0, 0, 0])[j] - v) * t);
+  // without an explicit elbow, the arm moves rigidly with the hand
+  const elbow = k => k.el || [L_ELBOW_REST.x + k.lh[0], L_ELBOW_REST.y + k.lh[1], L_ELBOW_REST.z + k.lh[2]];
+  const ea = elbow(a), eb = elbow(b);
+  const el = ea.map((v, j) => v + (eb[j] - v) * t);
+  return { gr: mix('gr'), gp: mix('gp'), mag: mix('mag'), lh: mix('lh'), ch: mix('ch')[0], el };
+}
+
+// Valorant-style hip placement: low in the bottom-right, pointing mostly straight ahead (tuned at 1920x1080)
+const VM_BASE = new THREE.Vector3(0.3, -0.27, -0.72);
+const VM_ROT = new THREE.Euler(0.05, 0.1, 0.08);
+const vmSway = { x: 0, y: 0 };
+
+// ── LIGHTING ──
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xfff5e6, 1.4);
+dirLight.position.set(15, 25, 10);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.left = -30;
+dirLight.shadow.camera.right = 30;
+dirLight.shadow.camera.top = 30;
+dirLight.shadow.camera.bottom = -30;
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 80;
+dirLight.shadow.bias = -0.001;
+scene.add(dirLight);
+
+const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x98d890, 0.3);
+scene.add(hemiLight);
+
+// ── MATERIALS (paper/sketch style) ──
+function paperMaterial(color) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.9,
+    metalness: 0.0,
+    flatShading: true,
+  });
+}
+
+// ── FLOOR ──
+const floorGeo = new THREE.BoxGeometry(60, 0.4, 60);
+const floorMat = paperMaterial(0x8fbc8f);
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.position.y = -0.2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// grid lines on floor
+const gridHelper = new THREE.GridHelper(60, 30, 0x6a9a6a, 0x6a9a6a);
+gridHelper.position.y = 0.01;
+gridHelper.material.opacity = 0.3;
+gridHelper.material.transparent = true;
+scene.add(gridHelper);
+
+// ── OBSTACLES ──
+const obstacles = [];
+function addObstacle(x, y, z, sx, sy, sz, color) {
+  const geo = new THREE.BoxGeometry(sx, sy, sz);
+  const mat = paperMaterial(color);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  obstacles.push({
+    mesh,
+    min: new THREE.Vector3(x - sx/2, y - sy/2, z - sz/2),
+    max: new THREE.Vector3(x + sx/2, y + sy/2, z + sz/2),
+  });
+}
+
+addObstacle(6, 1.5, 6, 2.5, 3, 2.5, 0xd4a574);
+addObstacle(-5, 1, 9, 3, 2, 1.5, 0xb8a9c9);
+addObstacle(10, 2, -4, 1.5, 4, 1.5, 0xa3c4bc);
+addObstacle(-8, 0.75, -7, 4, 1.5, 2.5, 0xd4c5a0);
+addObstacle(0, 0.5, -10, 8, 1, 1.5, 0xc9b8a8);
+addObstacle(-12, 1.25, 3, 2, 2.5, 3, 0xb5c9a8);
+addObstacle(14, 1, 10, 2, 2, 2, 0xd4b8a0);
+addObstacle(-3, 2.5, 4, 1.5, 5, 1.5, 0xa8b8d4);
+// character-height wall in front of the blue spawn (z = -24): hides both spawns while standing (eye 1.6 m)
+addObstacle(0, 1, -19, 14, 2, 1, 0x8fa3c4);
+
+// ramp
+const rampGeo = new THREE.BoxGeometry(4, 0.3, 6);
+const rampMesh = new THREE.Mesh(rampGeo, paperMaterial(0xccc0a0));
+rampMesh.position.set(5, 0.8, -8);
+rampMesh.rotation.x = -0.25;
+rampMesh.castShadow = true;
+rampMesh.receiveShadow = true;
+scene.add(rampMesh);
+
+// ── PLAYER ──
+const playerGroup = new THREE.Group();
+scene.add(playerGroup);
+
+// ── PAPER DUMMY CHARACTER ──
+const TEAM = {
+  red: { body: 0xd9534a, band: 0x8f2a24 },
+  blue: { body: 0x4a7fd9, band: 0x24468f },
+};
+function createDummy(team) {
+  const t = TEAM[team];
+  const root = new THREE.Group();
+  const D = 0.07; // paper thickness
+  const disc = (parent, r, color, x, y, z) => {
+    const m = inked(new THREE.CylinderGeometry(r, r, D, 16), color);
+    m.rotation.x = Math.PI / 2;
+    m.position.set(x, y, z);
+    parent.add(m);
+    return m;
+  };
+
+  const legL = new THREE.Group(); legL.position.set(-0.11, 0.78, 0); root.add(legL);
+  const legR = new THREE.Group(); legR.position.set(0.11, 0.78, 0); root.add(legR);
+  part(legL, 0.17, 0.72, D, 0x3b3a40, 0, -0.36, 0);
+  part(legR, 0.17, 0.72, D, 0x3b3a40, 0, -0.36, 0);
+  part(legL, 0.2, 0.08, 0.16, 0x222024, 0, -0.74, 0.03);
+  part(legR, 0.2, 0.08, 0.16, 0x222024, 0, -0.74, 0.03);
+
+  const torso = new THREE.Group(); torso.position.y = 0.78; root.add(torso);
+  part(torso, 0.5, 0.62, D + 0.02, t.body, 0, 0.31, 0);
+  part(torso, 0.52, 0.07, D + 0.03, 0x2b2926, 0, 0.03, 0);              // belt
+  part(torso, 0.1, 0.08, 0.02, 0xf2f0e8, 0.13, 0.48, D / 2 + 0.015);   // chest tag
+
+  const armL = new THREE.Group(); armL.position.set(-0.3, 1.34, 0); root.add(armL);
+  const armR = new THREE.Group(); armR.position.set(0.3, 1.34, 0); root.add(armR);
+  part(armL, 0.13, 0.55, D, t.body, 0, -0.26, 0);
+  part(armR, 0.13, 0.55, D, t.body, 0, -0.26, 0);
+  disc(armL, 0.075, C.skin, 0, -0.56, 0);
+  disc(armR, 0.075, C.skin, 0, -0.56, 0);
+
+  const head = new THREE.Group(); head.position.y = 1.68; root.add(head);
+  disc(head, 0.24, 0xf4efe2, 0, 0, 0);
+  part(head, 0.5, 0.08, D + 0.02, t.band, 0, 0.1, 0);                  // headband
+  part(head, 0.06, 0.09, 0.01, 0x1a1410, -0.08, -0.02, D / 2 + 0.006); // eyes
+  part(head, 0.06, 0.09, 0.01, 0x1a1410, 0.08, -0.02, D / 2 + 0.006);
+  part(head, 0.1, 0.02, 0.01, 0x1a1410, 0, -0.12, D / 2 + 0.006);      // mouth
+
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.userData.dummy = root;
+  });
+  head.traverse(o => { if (o.isMesh) o.userData.isHead = true; });
+  root.rotation.order = 'YXZ';
+  root.userData = { legL, legR, armL, armR, head, phase: Math.random() * 10, hp: 100, dead: false, deadT: 0, hitT: 0 };
+  return root;
+}
+
+function animateDummy(d, time, moving) {
+  const u = d.userData;
+  const s = moving ? Math.sin(time * 10 + u.phase) * 0.6 : 0;
+  u.legL.rotation.x = s;
+  u.legR.rotation.x = -s;
+  u.armL.rotation.x = -s * 0.7;
+  u.armR.rotation.x = s * 0.7;
+  u.head.rotation.z = Math.sin(time * 1.8 + u.phase) * 0.05;
+  d.rotation.z = moving ? 0 : Math.sin(time * 1.2 + u.phase) * 0.02;
+}
+
+const charMesh = createDummy('blue');
+playerGroup.add(charMesh);
+
+const dummies = [];
+[[0, 6, 'red', false], [-6, 14, 'red', true], [8, 16, 'blue', false], [-14, -4, 'red', true], [16, 0, 'blue', true]]
+  .forEach(([x, z, team, walks]) => {
+    const d = createDummy(team);
+    d.position.set(x, 0, z);
+    d.userData.walks = walks;
+    d.userData.origin = new THREE.Vector3(x, 0, z);
+    scene.add(d);
+    dummies.push(d);
+  });
+
+// ── SHOOTING ──
+const WEAPON = { magSize: 30, fireInterval: 0.1, bodyDmg: 30, headDmg: 60, range: 200 };
+const weapon = { ammo: WEAPON.magSize, cooldown: 0, reloading: 0, reload: RELOADS.tac, kick: 0, spray: 0 };
+
+// Recoil is tracked as an offset on top of the player's aim so it can be recovered after a burst.
+// recoverMaxSpeed (deg/s) caps the pull-back so big climbs come down at a steady pace; recoverRate only shapes the final ease-out
+// sprayResetDelay/Rate: after a short pause the pattern rewinds ~15 shots/s (a 3-shot burst is fully reset in ~0.3s)
+const RECOIL = {
+  recoverDelay: 0.12, recoverRate: 9, recoverMaxSpeed: 7, kickSmooth: 22,
+  sprayResetDelay: 0.12, sprayResetRate: 15,
+  plateauShot: 11, lateJitter: 0.28,
+};
+
+// CS AK / Valorant Vandal-style pattern, cumulative [pitch up, yaw left] in degrees per shot:
+// shots 1-3 barely move (tap accuracy), 4-11 climb hard, then the climb plateaus and
+// the spray becomes a slow left-then-right sweep (random wobble is added per shot in fireShot)
+const SPRAY = (() => {
+  const climb = [0, 0.15, 0.3, 0.7, 1.0, 1.1, 1.05, 0.95, 0.8, 0.65, 0.45, 0.3];
+  const out = [];
+  let p = 0;
+  for (let i = 0; i < 31; i++) {
+    p += i < climb.length ? climb[i] : 0.06;
+    const y = i < RECOIL.plateauShot
+      ? -0.03 * i
+      : -0.3 + 1.1 * Math.sin(((i - RECOIL.plateauShot) / 18) * Math.PI * 2);
+    out.push([p, y]);
+  }
+  return out;
+})();
+
+// radius of the random cone (deg) for the shot at spray index i
+function currentSpread(i) {
+  const speedNow = Math.hypot(player.velocity.x, player.velocity.z);
+  const hip = Math.min(0.9, 0.1 + 0.03 * i)
+    + Math.pow(Math.min(1.5, speedNow / CONFIG.walkSpeed), 1.5) * 1.8
+    + (player.isGrounded ? 0 : 3.5);
+  return hip * (1 + (ADS.spreadMul - 1) * adsEase());
+}
+
+const recoil = { pitch: 0, yaw: 0, pendPitch: 0, pendYaw: 0, sinceShot: 1 };
+function applyPendingKick(dt) {
+  const f = Math.min(1, RECOIL.kickSmooth * dt);
+  const dp = Math.min(CONFIG.cameraMaxPitch - cam.pitch, recoil.pendPitch * f);
+  const dy = recoil.pendYaw * f;
+  cam.pitch += dp;
+  cam.yaw += dy;
+  recoil.pitch += dp;
+  recoil.yaw += dy;
+  recoil.pendPitch -= recoil.pendPitch * f;
+  recoil.pendYaw -= dy;
+}
+// mouse movement against the recoil uses it up, so recovery never drags the aim past where the player pulled to
+function compensateRecoil(dPitch, dYaw) {
+  if (recoil.pitch > 0 && dPitch < 0) recoil.pitch = Math.max(0, recoil.pitch + dPitch);
+  if (recoil.yaw * dYaw < 0) {
+    const y = recoil.yaw + dYaw;
+    recoil.yaw = Math.sign(y) === Math.sign(recoil.yaw) ? y : 0;
+  }
+}
+function recoverRecoil(dt) {
+  recoil.sinceShot += dt;
+  if (recoil.sinceShot < RECOIL.recoverDelay) return;
+  const mag = Math.hypot(recoil.pitch, recoil.yaw);
+  if (mag < 1e-4) return;
+  const step = Math.min(mag, mag * RECOIL.recoverRate * dt, RECOIL.recoverMaxSpeed * dt);
+  const dp = recoil.pitch / mag * step, dy = recoil.yaw / mag * step;
+  cam.pitch -= dp;
+  cam.yaw -= dy;
+  recoil.pitch -= dp;
+  recoil.yaw -= dy;
+}
+const reloadProgress = () => weapon.reloading > 0 ? 1 - weapon.reloading / weapon.reload.time : 0;
+
+// Reload cancel: stops the reload where it is. Ammo already seated stays; the viewmodel eases back to the hip.
+const RELOAD_CANCEL_BLEND = 0.15;
+const reloadCancel = { t: 0, keys: null, p: 0 };
+function cancelReload() {
+  if (weapon.reloading <= 0) return;
+  reloadCancel.keys = weapon.reload.keys;
+  reloadCancel.p = reloadProgress();
+  reloadCancel.t = RELOAD_CANCEL_BLEND;
+  weapon.reloading = 0;
+  stopReloadSounds();
+}
+// pose of the reload animation this frame, including the ease-out after a cancel
+function currentReloadPose(dt) {
+  if (weapon.reloading > 0) return sampleReload(weapon.reload.keys, reloadProgress());
+  if (reloadCancel.t > 0) {
+    reloadCancel.t = Math.max(0, reloadCancel.t - dt);
+    const from = sampleReload(reloadCancel.keys, reloadCancel.p);
+    let k = reloadCancel.t / RELOAD_CANCEL_BLEND;
+    k = k * k * (3 - 2 * k);
+    const scale = arr => arr.map(v => v * k);   // the hip pose is all zeros
+    return { gr: scale(from.gr), gp: scale(from.gp), mag: scale(from.mag), lh: scale(from.lh), ch: from.ch * k,
+      el: from.el.map((v, j) => L_ELBOW_REST.getComponent(j) + (v - L_ELBOW_REST.getComponent(j)) * k) };
+  }
+  return sampleReload(weapon.reload.keys, 0);
+}
+let firing = false;
+
+document.addEventListener('mousedown', e => {
+  if (!isLocked) return;
+  if (e.button === 0) firing = true;
+  if (e.button === 2) ads.held = true;
+});
+document.addEventListener('mouseup', e => {
+  if (e.button === 0) firing = false;
+  if (e.button === 2) ads.held = false;
+});
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+// ── AIM DOWN SIGHTS (hold right mouse) ──
+// pos: viewmodel offset that puts the front sight post on the screen center line
+const ADS = { zoom: 1.3, time: 0.18, vmFov: 50, spreadMul: 0.35, recoilMul: 0.8, speedMul: 0.65, pos: new THREE.Vector3(0, -0.112, -0.32) };
+const ads = { held: false, t: 0 };
+const adsEase = () => ads.t * ads.t * (3 - 2 * ads.t);
+function updateAds(dt) {
+  const rifleIdle = loadout.current === 'rifle' && loadout.phase === 'idle';
+  const want = rifleIdle && ads.held && weapon.reloading <= 0 && !player.isDodging ? 1 : 0;
+  const step = dt / ADS.time;
+  ads.t = want ? Math.min(1, ads.t + step) : Math.max(0, ads.t - step);
+  const e = adsEase();
+  const zoom = 1 + (ADS.zoom - 1) * e;
+  camera.fov = 2 * Math.atan(Math.tan(CONFIG.fov * Math.PI / 360) / zoom) * 180 / Math.PI;
+  camera.updateProjectionMatrix();
+  vmCamera.fov = 58 + (ADS.vmFov - 58) * e;
+  vmCamera.updateProjectionMatrix();
+  crosshairEl.style.opacity = (1 - e).toFixed(2);
+}
+document.addEventListener('keydown', e => { if (e.code === 'KeyR') startReload(); });
+
+function startReload() {
+  // tactical reload keeps the chambered round (30+1); only an empty gun needs the charging handle racked
+  if (loadout.current !== 'rifle' || loadout.phase !== 'idle') return;
+  if (weapon.reloading > 0 || weapon.ammo > WEAPON.magSize) return;
+  weapon.reload =weapon.ammo === 0 ? RELOADS.empty : RELOADS.tac;
+  weapon.reloadFill = weapon.ammo === 0 ? WEAPON.magSize : WEAPON.magSize + 1;
+  weapon.reloading = weapon.reload.time;
+  playReloadSounds(weapon.reload === RELOADS.empty);
+}
+
+const muzzleFlash = new THREE.Group();
+const flashMat = new THREE.MeshBasicMaterial({ color: 0xffe066, side: THREE.DoubleSide, transparent: true, opacity: 0.95 });
+const flashShape = new THREE.Shape();
+for (let i = 0; i < 12; i++) {
+  const a = (i / 12) * Math.PI * 2;
+  const r = i % 2 ? 0.035 : 0.09;
+  i ? flashShape.lineTo(Math.cos(a) * r, Math.sin(a) * r) : flashShape.moveTo(r, 0);
+}
+const flashGeo = new THREE.ShapeGeometry(flashShape);
+const flashA = new THREE.Mesh(flashGeo, flashMat);
+const flashB = new THREE.Mesh(flashGeo, flashMat);
+flashB.rotation.y = Math.PI / 2;
+flashB.scale.set(1, 1, 1);
+muzzleFlash.add(flashA, flashB);
+muzzleFlash.position.set(0, 0.03, -0.95);
+muzzleFlash.visible = false;
+gun.add(muzzleFlash);
+let flashTimer = 0;
+
+const shootRay = new THREE.Raycaster();
+const worldMeshes = () => [floor, rampMesh, ...obstacles.map(o => o.mesh)];
+
+const decals = [];
+const decalGeo = new THREE.CircleGeometry(0.03, 8);
+const decalMat = new THREE.MeshBasicMaterial({ color: 0x1a1410, transparent: true, opacity: 0.8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+function addDecal(point, normal) {
+  const m = new THREE.Mesh(decalGeo, decalMat);
+  m.position.copy(point).addScaledVector(normal, 0.005);
+  m.lookAt(point.clone().add(normal));
+  m.rotation.z = Math.random() * Math.PI;
+  scene.add(m);
+  decals.push(m);
+  if (decals.length > 60) scene.remove(decals.shift());
+}
+
+const confetti = [];
+const confettiGeo = new THREE.PlaneGeometry(0.06, 0.04);
+const confettiMats = {};
+function spawnConfetti(point, normal, color, count) {
+  if (!confettiMats[color]) confettiMats[color] = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(confettiGeo, confettiMats[color]);
+    m.position.copy(point);
+    m.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+    const v = normal.clone().multiplyScalar(2 + Math.random() * 2)
+      .add(new THREE.Vector3((Math.random() - 0.5) * 3, Math.random() * 3, (Math.random() - 0.5) * 3));
+    m.userData = { v, spin: new THREE.Vector3(Math.random() * 10, Math.random() * 10, Math.random() * 10), life: 0.7 + Math.random() * 0.4 };
+    scene.add(m);
+    confetti.push(m);
+  }
+}
+
+const crosshairEl = document.getElementById('crosshair');
+const ammoCountEl = document.getElementById('ammo-count');
+const weaponNameEl = document.getElementById('weapon-name');
+const slotHintEl = document.getElementById('slot-hint');
+let crosshairGap = 4;
+const hitmarkerEl = document.getElementById('hitmarker');
+const killfeedEl = document.getElementById('killfeed');
+let hitmarkerTimer = 0, killfeedTimer = 0;
+function showHitmarker(head) {
+  sfx.hit(head);
+  hitmarkerEl.classList.toggle('head', head);
+  hitmarkerEl.classList.add('show');
+  hitmarkerTimer = 0.1;
+}
+function showKill(text) {
+  sfx.kill();
+  killfeedEl.textContent = text;
+  killfeedEl.classList.add('show');
+  killfeedTimer = 1.2;
+}
+
+function fireShot() {
+  weapon.ammo--;
+  sfx.shot();
+  weapon.kick = 1;
+  flashTimer = 0.04;
+  muzzleFlash.rotation.z = Math.random() * Math.PI;
+
+  const i = Math.min(SPRAY.length - 1, Math.floor(weapon.spray));
+  const prev = i > 0 ? SPRAY[i - 1] : [0, 0];
+  weapon.spray += 1;
+
+  // kick is queued and eased into the view over a few frames (see applyPendingKick)
+  // past the plateau, a little random sideways wobble on top of the fixed sweep (Valorant-style)
+  const jitter = i >= RECOIL.plateauShot ? RECOIL.lateJitter : 0.03;
+  const kickMul = 1 + (ADS.recoilMul - 1) * adsEase();
+  recoil.pendPitch += (SPRAY[i][0] - prev[0] + Math.random() * 0.03) * kickMul;
+  recoil.pendYaw += (SPRAY[i][1] - prev[1] + (Math.random() - 0.5) * jitter) * kickMul;
+  recoil.sinceShot = 0;
+
+  // bullet goes where the crosshair is heading (current view + queued kick) plus random spread
+  const spreadDeg = currentSpread(i);
+  const r = spreadDeg * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+  const offPitch = recoil.pendPitch + Math.sin(a) * r;
+  const offYaw = recoil.pendYaw + Math.cos(a) * r;
+
+  camera.updateMatrixWorld();
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  const rightV = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  const dir = fwd
+    .addScaledVector(up, Math.tan(offPitch * Math.PI / 180))
+    .addScaledVector(rightV, -Math.tan(offYaw * Math.PI / 180))  // +yaw turns left
+    .normalize();
+  shootRay.set(camera.position, dir);
+  shootRay.far = WEAPON.range;
+
+  const targets = [...worldMeshes(), ...dummies.filter(d => !d.userData.dead)];
+  const hit = shootRay.intersectObjects(targets, true).find(h => h.object.isMesh);
+  reportShot(camera.position, hit ? hit.point : camera.position.clone().addScaledVector(dir, 80));
+
+  if (!hit) return;
+  const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : dir.clone().negate();
+  const dummy = hit.object.userData.dummy;
+  if (dummy) {
+    const head = !!hit.object.userData.isHead;
+    const u = dummy.userData;
+    if (reportHit(dummy, head ? WEAPON.headDmg : WEAPON.bodyDmg, head, 'rifle')) {
+      if (u.team !== net.myTeam) { u.hitT = 0.12; spawnConfetti(hit.point, normal, head ? 0xf4efe2 : hit.object.material.color.getHex(), head ? 14 : 7); }
+      return;
+    }
+    u.hp -= head ? WEAPON.headDmg : WEAPON.bodyDmg;
+    u.hitT = 0.12;
+    showHitmarker(head);
+    spawnConfetti(hit.point, normal, head ? 0xf4efe2 : hit.object.material.color.getHex(), head ? 14 : 7);
+    if (u.hp <= 0) {
+      u.dead = true;
+      u.deadT = 0;
+      showKill(head ? 'HEADSHOT' : 'ELIMINATED');
+    }
+  } else {
+    addDecal(hit.point, normal);
+    spawnConfetti(hit.point, normal, hit.object.material.color.getHex(), 4);
+  }
+}
+
+// ── KNIFE: 기본칼 (modeled after Valorant's Xenohunter knife) ──
+const KNIFE = { name: '기본칼', lightDmg: 50, heavyDmg: 75, backstabDmg: 150, lightRange: 2.0, heavyRange: 1.7, speedMul: 1.12 };
+
+const knifeRoot = new THREE.Group();
+vmCamera.add(knifeRoot);
+knifeRoot.visible = false;
+const KNIFE_ROOT = [0.05, 0.0, -0.2];
+
+// The reference clip is a square center crop of a 16:9 screen. refPos converts a point traced on that square
+// (s: 0 left → 1 right, t: 0 top → 1 bottom) at depth d into knifeRoot space, so poses land where the video shows them.
+const REF_K = 2 * 0.5625 * Math.tan(29 * Math.PI / 180) * (16 / 9);   // vmCamera fov 58, 16:9
+function refPos(s, t, d) {
+  return [
+    (s - 0.5) * REF_K * d - KNIFE_ROOT[0],
+    (0.5 - t) * 2 * Math.tan(29 * Math.PI / 180) * d - KNIFE_ROOT[1],
+    -d - KNIFE_ROOT[2],
+  ];
+}
+
+// hand group: local +y runs from pommel to blade tip, so posing the hand poses the knife
+const knifeHand = new THREE.Group();
+knifeRoot.add(knifeHand);
+// knife flipped about its own axis so the edge faces hand -x (down in the idle pose) and the serrated spine faces up
+// The knife lives in knifeRoot (not the hand) so it can leave the hand for the draw toss.
+// Gripped: it copies the hand transform plus a flip about its own axis (edge down, serrated spine up).
+const knifeModel = new THREE.Group();
+knifeModel.scale.setScalar(0.88);   // matches the knife-to-hand proportion in the reference
+knifeRoot.add(knifeModel);
+const KNIFE_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+const _fzAxis = new THREE.Vector3(0, 0, 1);
+const KNIFE_CATCH_BLEND = 0.12;
+const _gripQ = new THREE.Quaternion();
+const _pivotTmp = new THREE.Vector3();
+const _fxAxis = new THREE.Vector3(1, 0, 0), _tiltQ = new THREE.Quaternion();
+// one group per knife skin inside knifeModel; only the selected one is visible
+const basicKnife = new THREE.Group();
+knifeModel.add(basicKnife);
+const karambitKnife = new THREE.Group();
+knifeModel.add(karambitKnife);
+{
+  const knifeModel = basicKnife;   // build the 기본칼 parts into its own group
+  const bladeShape = new THREE.Shape();
+  bladeShape.moveTo(-0.017, 0);
+  bladeShape.lineTo(-0.017, 0.05);
+  for (let k = 0; k < 6; k++) {                       // serrated spine (sawback)
+    const y = 0.05 + k * 0.018;
+    bladeShape.lineTo(-0.024, y + 0.009);
+    bladeShape.lineTo(-0.017, y + 0.018);
+  }
+  bladeShape.lineTo(-0.017, 0.19);
+  bladeShape.quadraticCurveTo(-0.012, 0.235, 0.004, 0.27);   // clip point
+  bladeShape.quadraticCurveTo(0.02, 0.2, 0.019, 0.12);       // belly
+  bladeShape.lineTo(0.017, 0);
+  const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: 0.008, bevelEnabled: false });
+  bladeGeo.translate(0, 0, -0.004);
+  const blade = inked(bladeGeo, 0x1f1e24);
+  blade.position.y = 0.072;
+  knifeModel.add(blade);
+  const edge = part(knifeModel, 0.004, 0.17, 0.009, 0x9aa0ab, 0.017, 0.072 + 0.095, 0); // honed edge
+  edge.rotation.z = 0.02;
+  part(knifeModel, 0.078, 0.014, 0.034, 0x3a3836, 0, 0.066, 0);              // guard
+  part(knifeModel, 0.032, 0.12, 0.03, 0x2a2622, 0, 0, 0);                     // grip
+  for (let k = -1; k <= 1; k++) part(knifeModel, 0.035, 0.008, 0.033, 0x4a4136, 0, k * 0.032, 0); // wraps
+  const ring = inked(new THREE.TorusGeometry(0.018, 0.005, 6, 12), 0x3a3836);  // ring pommel
+  ring.position.y = -0.078;
+  knifeModel.add(ring);
+}
+// 카람빗: held reverse-grip — finger ring above the fist (+y), claw blade curving out below it (-y)
+const KARAMBIT_RING = new THREE.Vector3(0, 0.078, 0);   // index-finger ring, the spin pivot
+{
+  const k = karambitKnife;
+  part(k, 0.028, 0.1, 0.026, 0x2a2622, 0, 0, 0);                              // handle
+  for (let i = -1; i <= 1; i++) part(k, 0.031, 0.009, 0.029, 0xb33a3a, 0, i * 0.028, 0); // red cord wraps
+  part(k, 0.034, 0.012, 0.03, 0x3a3836, 0, 0.051, 0);                         // ring bolster
+  const ring = inked(new THREE.TorusGeometry(0.024, 0.006, 6, 14), 0x8f969f);  // finger ring
+  ring.position.copy(KARAMBIT_RING);
+  k.add(ring);
+  part(k, 0.04, 0.012, 0.03, 0x3a3836, 0, -0.054, 0);                         // guard
+  // crescent claw blade: outer spine curve and inner edge curve meet at the hooked tip
+  const s = new THREE.Shape();
+  s.moveTo(0.013, -0.058);
+  s.quadraticCurveTo(0.036, -0.16, -0.08, -0.185);     // spine out to the tip
+  s.quadraticCurveTo(-0.004, -0.13, -0.013, -0.058);   // concave cutting edge back to the guard
+  s.lineTo(0.013, -0.058);
+  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.007, bevelEnabled: false });
+  geo.translate(0, 0, -0.0035);
+  k.add(inked(geo, 0x9aa3ad));
+  // darker spine line so the curve reads from a distance
+  const spine = new THREE.Shape();
+  spine.moveTo(0.013, -0.058);
+  spine.quadraticCurveTo(0.036, -0.16, -0.08, -0.185);
+  spine.quadraticCurveTo(0.02, -0.15, 0.004, -0.06);
+  spine.lineTo(0.013, -0.058);
+  const sg = new THREE.ExtrudeGeometry(spine, { depth: 0.0085, bevelEnabled: false });
+  sg.translate(0, 0, -0.00425);
+  k.add(new THREE.Mesh(sg, vmMat(0x5b626b)));
+}
+
+const KNIFE_SKINS = {
+  basic: { name: '기본칼', group: basicKnife },
+  // grip: extra twist in the fist so the claw curls up past the knuckles instead of hiding behind them
+  karambit: { name: '카람빗', group: karambitKnife, pivot: KARAMBIT_RING,
+    grip: new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 0, -0.4)) },
+};
+let knifeSkin = 'basic';
+try { const saved = localStorage.getItem('knifeSkin'); if (KNIFE_SKINS[saved]) knifeSkin = saved; } catch (e) { /* storage blocked */ }
+function applyKnifeSkin() {
+  for (const [id, s] of Object.entries(KNIFE_SKINS)) s.group.visible = id === knifeSkin;
+}
+applyKnifeSkin();
+// closed fist around the grip
+const knifeFist = new THREE.Group();
+knifeHand.add(knifeFist);
+part(knifeFist, 0.07, 0.092, 0.072, C.glove, 0.005, -0.005, 0.008);       // glove (same arms as the AK)
+part(knifeFist, 0.072, 0.03, 0.022, C.skin, 0.003, 0.014, -0.037);        // bare fingertips
+// open palm with spread fingers, shown while the knife is in the air
+const knifeOpenHand = new THREE.Group();
+knifeHand.add(knifeOpenHand);
+knifeOpenHand.visible = false;
+part(knifeOpenHand, 0.072, 0.075, 0.03, C.glove, 0, -0.01, 0);            // palm
+[[-0.027, 0.2], [-0.009, 0.06], [0.009, -0.06], [0.027, -0.2]].forEach(([x, rz]) => {
+  part(knifeOpenHand, 0.014, 0.025, 0.016, C.glove, x, 0.038, 0, 0, 0, rz);           // finger base
+  part(knifeOpenHand, 0.013, 0.03, 0.015, C.skin, x - rz * 0.03, 0.065, 0, 0, 0, rz); // bare fingertip
+});
+part(knifeOpenHand, 0.016, 0.045, 0.016, C.glove, -0.045, 0.0, 0.01, 0, 0, 0.9);       // thumb
+
+const knifeForearm = new THREE.Group();
+knifeRoot.add(knifeForearm);
+const knifeSleeve = inked(new THREE.BoxGeometry(0.075, 0.07, 1), C.sleeve);
+knifeForearm.add(knifeSleeve);
+part(knifeForearm, 0.088, 0.083, 0.025, C.sleeveDark, 0, 0, 0.06);           // cuff
+// elbow off the bottom-right edge, matching where the forearm enters in the reference
+const KNIFE_ELBOW = new THREE.Vector3(...refPos(0.95, 1.3, 0.38));
+const KNIFE_WRIST = new THREE.Vector3(0.004, -0.06, 0.012);                  // in hand space, just below the glove
+const _kw = new THREE.Vector3(), _kd = new THREE.Vector3();
+function poseKnifeForearm() {
+  _kw.copy(KNIFE_WRIST).applyQuaternion(knifeHand.quaternion).add(knifeHand.position);
+  _kd.copy(KNIFE_ELBOW).sub(_kw);
+  const len = _kd.length();
+  knifeForearm.position.copy(_kw);
+  knifeForearm.quaternion.setFromUnitVectors(_fz, _kd.normalize());
+  knifeSleeve.scale.z = len;
+  knifeSleeve.position.z = len / 2;
+}
+
+// off hand: mostly tucked below the bottom-left edge, peeks in during the heavy (as in the reference)
+const knifeLeftHand = new THREE.Group();
+knifeRoot.add(knifeLeftHand);
+part(knifeLeftHand, 0.075, 0.03, 0.1, C.glove, 0, 0, 0);
+part(knifeLeftHand, 0.07, 0.022, 0.04, C.skin, 0.004, 0.004, -0.06);       // fingers
+const knifeLeftForearm = new THREE.Group();
+knifeRoot.add(knifeLeftForearm);
+const knifeLeftSleeve = inked(new THREE.BoxGeometry(0.075, 0.07, 1), C.sleeve);
+knifeLeftForearm.add(knifeLeftSleeve);
+part(knifeLeftForearm, 0.088, 0.083, 0.025, C.sleeveDark, 0, 0, 0.06);
+const KNIFE_L_ELBOW = new THREE.Vector3(...refPos(-0.25, 1.35, 0.38));
+function poseKnifeLeft(lp) {
+  knifeLeftHand.position.set(lp[0], lp[1], lp[2]);
+  knifeLeftHand.rotation.set(0.25, 0.4, -0.3);
+  _kw.set(lp[0] - 0.01, lp[1] - 0.01, lp[2] + 0.05);
+  _kd.copy(KNIFE_L_ELBOW).sub(_kw);
+  const len = _kd.length();
+  knifeLeftForearm.position.copy(_kw);
+  knifeLeftForearm.quaternion.setFromUnitVectors(_fz, _kd.normalize());
+  knifeLeftSleeve.scale.z = len;
+  knifeLeftSleeve.position.z = len / 2;
+}
+
+// swipe trail: a white paper arc flashed during the hit frames
+const trailMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+const knifeTrail = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.4, 28, 1, 0, 1), trailMat);
+knifeRoot.add(knifeTrail);
+let trailT = 0;
+
+// Keyframes traced from the Valorant Xenohunter knife clip at 60fps.
+// at = right-hand (glove) position on the reference square [s, t, depth]; r = hand rotation
+// (hand +y = blade direction; r.z: 0 = blade up, π/2 = pointing left, π = pointing down);
+// la = off-hand position, tucked below the bottom-left edge unless given.
+const K_IDLE = { at: [0.6, 0.85, 0.5], r: [0, -0.15, 1.37] };   // blade left and slightly up, edge down
+const LH_REST_AT = [0.0, 1.2, 0.42];
+const K_RAISED = [-0.22, 0.85, 0.15];                            // upright recovery hold, raised center-right
+const K_LOWER1 = [-0.2, 1.0, 0.6];                               // edge-on, tipping toward left
+const K_LOWER2 = [0, 0.3, 1.2];                                   // almost back to idle
+const SPIN = turns => turns * Math.PI * 2;                        // blade angle after n counter-clockwise turns
+const spun = (r, turns) => [r[0], r[1], r[2] + SPIN(turns)];
+const OPEN_R = [-0.35, 0.45, 0.2];                                // open palm, fingers up, palm toward the knife
+const KNIFE_ANIMS = {
+  // light A, ref 6.667-7.33s / 8.2s: rise, cock at the top-right edge, slash diagonally down-left across the screen,
+  // exit bottom-left, come back low to idle. The next light can start from 0.42s.
+  lightA: { dur: 1.0, hitAt: 0.217, nextAt: 0.42, ease: 'linear', range: KNIFE.lightRange, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
+    streak: { from: [0.88, 0.08], to: [0.05, 0.92], d: 0.55, width: 0.035 },
+    keys: [{ t: 0, ...K_IDLE },
+      { t: 0.017, at: [0.65, 0.8, 0.5], r: [0, 0, 0.9] },
+      { t: 0.05, at: [0.75, 0.45, 0.5], r: [0, 0, 0.1] },
+      { t: 0.083, at: [0.8, 0.12, 0.5], r: [0.6, 0, 3.0] },
+      { t: 0.183, at: [0.75, 0.15, 0.5], r: [0.5, 0, 2.8] },
+      { t: 0.217, at: [0.35, 0.55, 0.5], r: [-0.8, 0, 2.3] },
+      { t: 0.25, at: [0.08, 0.88, 0.5], r: [-1.0, 0, 2.0] },
+      { t: 0.3, at: [-0.1, 1.2, 0.5], r: [-1.0, 0, 2.0] },
+      { t: 0.65, at: [-0.1, 1.2, 0.5], r: [0, 0, 1.57] },
+      { t: 0.75, at: [0.1, 1.0, 0.5], r: [0, 0, 1.57] },
+      { t: 0.9, at: [0.45, 0.95, 0.5], r: [0, 0, 1.5] },
+      { t: 1.0, ...K_IDLE }] },
+  // light B, ref 7.33-8.2s: low backhand sweep left → right along the bottom, exit right,
+  // come back up from below to an upright hold, settle. The next light can start from 0.45s.
+  lightB: { dur: 1.12, hitAt: 0.1, nextAt: 0.45, ease: 'linear', range: KNIFE.lightRange, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
+    streak: { from: [0.02, 0.92], to: [0.85, 0.86], d: 0.5, width: 0.03 },
+    keys: [{ t: 0, ...K_IDLE },
+      { t: 0.05, at: [0.1, 1.0, 0.5], r: [0, 0, 1.57] },
+      { t: 0.08, at: [0.4, 0.95, 0.5], r: [0, 0, 1.57] },
+      { t: 0.1, at: [0.75, 0.88, 0.5], r: [0, 0, 1.57] },
+      { t: 0.14, at: [1.0, 0.98, 0.5], r: [0, 0, 1.4] },
+      { t: 0.18, at: [1.1, 1.2, 0.5], r: [0, 0, 1.4] },
+      { t: 0.5, at: [0.45, 1.15, 0.5], r: [0, 0, 0] },
+      { t: 0.6, at: [0.45, 1.0, 0.5], r: [0, 0, 0.1] },
+      { t: 0.72, at: [0.5, 0.85, 0.5], r: [-0.1, 0.6, 0.05] },
+      { t: 0.85, at: [0.55, 0.62, 0.5], r: K_RAISED },
+      { t: 0.95, at: [0.55, 0.7, 0.5], r: K_LOWER1 },
+      { t: 1.05, at: [0.57, 0.8, 0.5], r: K_LOWER2 },
+      { t: 1.12, ...K_IDLE }] },
+  // draw (equip), ref 5.38-6.11s: rise from bottom-right, flourish left → down → up → left, hold upright, settle
+  // draw (equip), ref 5.40-6.11s: the hand comes up gripping the knife (up-left), opens and tosses it; the knife
+  // spins one turn CLOCKWISE in the air around the open palm (ka = blade angle, counter-clockwise-positive, so it
+  // only decreases; kat = grip point on the reference square), is caught upright at 0.333s, held, then settles.
+  draw: { dur: 0.73, ease: 'linear',
+    keys: [{ t: 0, at: [0.75, 1.7, 0.5], r: [0.3, 0, 0.6] },
+      { t: 0.017, at: [0.7, 1.45, 0.5], r: [0.2, 0, 0.6] },
+      { t: 0.033, at: [0.62, 0.92, 0.5], r: [0, 0, 0.6] },
+      { t: 0.05, at: [0.62, 0.88, 0.5], r: [0, 0, 0.55] },
+      { t: 0.067, at: [0.62, 0.8, 0.5], r: OPEN_R, open: true, kat: [0.42, 0.8, 0.47], ka: -0.3 },
+      { t: 0.1, at: [0.62, 0.75, 0.5], r: OPEN_R, open: true, kat: [0.3, 0.6, 0.47], ka: -1.35 },
+      { t: 0.133, at: [0.62, 0.7, 0.5], r: OPEN_R, open: true, kat: [0.33, 0.47, 0.47], ka: -2.4 },
+      { t: 0.167, at: [0.62, 0.66, 0.5], r: OPEN_R, open: true, kat: [0.5, 0.42, 0.47], ka: -3.14 },
+      { t: 0.2, at: [0.62, 0.62, 0.5], r: OPEN_R, open: true, kat: [0.55, 0.38, 0.47], ka: -3.9 },
+      { t: 0.233, at: [0.62, 0.6, 0.5], r: OPEN_R, open: true, kat: [0.68, 0.4, 0.47], ka: -4.5 },
+      { t: 0.267, at: [0.63, 0.6, 0.5], r: OPEN_R, open: true, kat: [0.68, 0.5, 0.47], ka: -4.9 },
+      { t: 0.3, at: [0.63, 0.61, 0.5], r: OPEN_R, open: true, kat: [0.66, 0.52, 0.47], ka: -5.1 },
+      { t: 0.317, at: [0.62, 0.62, 0.5], r: OPEN_R, open: true, kat: [0.62, 0.6, 0.47], ka: -5.6 },
+      { t: 0.333, at: [0.6, 0.64, 0.5], r: K_RAISED },
+      { t: 0.45, at: [0.6, 0.62, 0.5], r: K_RAISED },
+      { t: 0.57, at: [0.55, 0.7, 0.5], r: K_LOWER1 },
+      { t: 0.67, at: [0.57, 0.8, 0.5], r: K_LOWER2 },
+      { t: 0.73, ...K_IDLE }] },
+  // ref 9.47-11.19s: rise and spin over the top, lunge up-left point-away (hit) and hold with the off hand showing,
+  // drop out of view, come back from the bottom-left, whip through left, hold upright, settle
+  heavy: { dur: 1.72, hitAt: 0.22, ease: 'linear', range: KNIFE.heavyRange, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
+    trail: { at: [0.5, 0.47, 0.75], start: 2.2, len: 2.6, r0: 0.06, r1: 0.1 },
+    keys: [{ t: 0, ...K_IDLE },
+      { t: 0.03, at: [0.55, 0.45, 0.48], r: [0, 0, 0.9] },
+      { t: 0.06, at: [0.6, 0.35, 0.5], r: [0, 0, 1.57] },
+      { t: 0.09, at: [0.6, 0.25, 0.5], r: [0, 0, 3.05] },
+      { t: 0.13, at: [0.75, 0.12, 0.5], r: [0, 0, 2.4] },
+      { t: 0.17, at: [0.8, 0.0, 0.5], r: [0, 0, 1.57] },
+      // stab lands on the crosshair: hand just above center, blade driven straight away and slightly down
+      { t: 0.22, at: [0.5, 0.43, 0.72], r: [-1.85, 0, 0], la: [0.06, 0.95, 0.42] },
+      { t: 0.8, at: [0.5, 0.44, 0.72], r: [-1.82, 0, 0.02], la: [0.06, 0.95, 0.42] },
+      { t: 0.83, at: [0.5, 0.5, 0.65], r: [0, 0, 1.57], la: [0.06, 0.97, 0.42] },
+      { t: 0.87, at: [0.55, 0.78, 0.5], r: [0, 0, 1.57] },
+      { t: 0.93, at: [0.55, 1.35, 0.5], r: [0.4, 0, 1.2] },
+      { t: 1.15, at: [0.3, 1.1, 0.5], r: [0, 0, 2.9] },
+      { t: 1.2, at: [0.6, 0.7, 0.5], r: [0, 0, 2.0] },
+      { t: 1.23, at: [0.6, 0.55, 0.5], r: [0, 0, 1.57] },
+      { t: 1.26, at: [0.6, 0.55, 0.5], r: [0, 0.3, 0.8] },
+      { t: 1.3, at: [0.55, 0.6, 0.5], r: [-0.2, 0.8, 0.15] },
+      { t: 1.45, at: [0.55, 0.62, 0.5], r: K_RAISED },
+      { t: 1.55, at: [0.55, 0.7, 0.5], r: K_LOWER1 },
+      { t: 1.65, at: [0.57, 0.8, 0.5], r: K_LOWER2 },
+      { t: 1.72, ...K_IDLE }] },
+  // 자세히 보기, ref 0.25-2.98s: swing up to vertical (edge-on, tipped away) and hold, tip into the flat pointing left
+  // (spine up) and hold, twist up to the up-left diagonal and hold, lower to idle
+  inspect: { dur: 2.73,
+    keys: [{ t: 0, ...K_IDLE },
+      { t: 0.2, at: [0.45, 0.88, 0.44], r: [-0.4, 1.25, 0.05] },
+      { t: 0.6, at: [0.46, 0.88, 0.44], r: [-0.36, 1.3, 0.0] },
+      { t: 1.08, at: [0.45, 0.88, 0.44], r: [-0.4, 1.25, 0.05] },
+      { t: 1.15, at: [0.5, 0.82, 0.5], r: [-0.3, 0.7, 0.8] },
+      { t: 1.27, at: [0.55, 0.72, 0.5], r: [0, 0, 1.4] },
+      { t: 1.73, at: [0.56, 0.73, 0.5], r: [0.02, 0, 1.45] },
+      { t: 1.85, at: [0.55, 0.8, 0.5], r: [0, 0.6, 1.2] },
+      { t: 1.95, at: [0.55, 0.88, 0.5], r: [0, 0.5, 0.81] },
+      { t: 2.5, at: [0.56, 0.87, 0.5], r: [0, 0.45, 0.85] },
+      { t: 2.6, at: [0.57, 0.85, 0.5], r: [0, 0.2, 1.2] },
+      { t: 2.73, ...K_IDLE }] },
+};
+// resolve traced screen positions into knifeRoot space once
+const LH_REST = refPos(...LH_REST_AT);
+K_IDLE.p = refPos(...K_IDLE.at);
+for (const anim of Object.values(KNIFE_ANIMS)) {
+  for (const k of anim.keys) {
+    if (k.at) k.p = refPos(...k.at);
+    if (k.la) k.lp = refPos(...k.la);
+    if (k.kat) k.kp = refPos(...k.kat);
+  }
+  if (anim.trail) anim.trail.pos = refPos(...anim.trail.at);
+  if (anim.streak) {
+    const s = anim.streak;
+    s.a = refPos(s.from[0], s.from[1], s.d);
+    s.b = refPos(s.to[0], s.to[1], s.d);
+  }
+}
+KNIFE_ANIMS.inspect.isInspect = true;
+
+// ── 카람빗: traced from CS2's karambit (draw 113.0s, inspect 115.5s, slash 129.0s, stab 133.0s of the showcase).
+// Positions are CS screen fractions [fx, fy] of the full 16:9 frame; csAt converts them to our reference square.
+// Free (in-air) knife keys spin around the finger ring: kat = ring position, ka = roll, kt = flip toward the camera.
+// With kt = 0 the blade points at screen angle ka + π; with kt = π (flipped up) it points at -ka (0 = up, CCW +).
+const csAt = (fx, fy, d = 0.5) => [(fx - 0.5) / 0.5625 + 0.5, fy, d];
+const KR_IDLE = { at: csAt(0.64, 0.81), r: [0, -0.15, 1.37] };   // fist low right, claw curling up to the right
+const KR_PALM = [-0.35, 0.45, 0.2];
+const KR_STAB = [-1.4, 0, 1.3];   // fist upright, knuckles to the camera, claw pointing forward-left
+// free-knife key: hand at h (CS fractions), ring slightly up-left of the hand
+const fk = (t, h, ka, kt = 0, extra = {}) => ({ t, at: csAt(h[0], h[1], extra.d || 0.5), r: extra.r || KR_PALM, open: true,
+  kat: csAt(h[0] - 0.02, h[1] - 0.03, (extra.d || 0.5) - 0.03), ka, kt, ...extra });
+const KARAMBIT_ANIMS = {
+  // draw: hand rises from the bottom right with the knife hanging off the finger, flips it up toward the camera,
+  // rolls it once counter-clockwise around the ring (up → left → down → right) and closes the fist
+  draw: { dur: 0.72, ease: 'linear', pivotRing: true,
+    // hanging keys lean the knife a little left (ka > 0) so it dangles beside the forearm like in CS, not behind it
+    keys: [fk(0, [0.74, 1.25], 0.35),
+      fk(0.033, [0.717, 0.954], 0.35),
+      fk(0.067, [0.823, 0.648], 0.4),
+      fk(0.1, [0.858, 0.49], 0.35),
+      fk(0.167, [0.823, 0.49], 0.25),
+      fk(0.2, [0.81, 0.51], 0.12, Math.PI / 2),
+      fk(0.233, [0.802, 0.537], 0, Math.PI),
+      fk(0.3, [0.773, 0.537], -0.9, Math.PI),
+      fk(0.333, [0.765, 0.56], -2.2, Math.PI),
+      fk(0.367, [0.752, 0.583], -2.8, Math.PI),
+      fk(0.4, [0.775, 0.61], -4.4, Math.PI),
+      fk(0.433, [0.802, 0.63], -5.0, Math.PI),
+      { t: 0.46, at: csAt(0.79, 0.66), r: KR_IDLE.r },
+      { t: 0.72, ...KR_IDLE }] },
+  // 자세히 보기: flick onto the finger, swing it clockwise up and over, turn the palm to the camera and hold the
+  // blade hanging left under the hand (~3.9s), let it drop, flip it up and roll it back into the fist
+  inspect: { dur: 5.95, ease: 'linear', pivotRing: true, isInspect: true,
+    keys: [{ t: 0, ...KR_IDLE },
+      { t: 0.13, at: csAt(0.68, 0.77), r: [0, -0.1, 1.3] },
+      fk(0.2, [0.717, 0.722], 2.0 - Math.PI),
+      fk(0.27, [0.823, 0.537], 0 - Math.PI),
+      fk(0.33, [0.787, 0.583], -0.7 - Math.PI),
+      fk(0.4, [0.787, 0.583], -0.9 - Math.PI),
+      fk(0.47, [0.787, 0.63], -1.8 - Math.PI),
+      fk(0.67, [0.77, 0.55], -3.0 - Math.PI, 0, { d: 0.42 }),
+      fk(0.9, [0.752, 0.49], -4.1 - Math.PI, 0, { d: 0.38 }),
+      fk(2.8, [0.755, 0.5], -4.15 - Math.PI, 0, { d: 0.38 }),
+      fk(4.8, [0.752, 0.49], -4.1 - Math.PI, 0, { d: 0.38 }),
+      fk(5.07, [0.74, 0.53], -3.8 - Math.PI, 0, { d: 0.42 }),
+      fk(5.13, [0.73, 0.57], -2 * Math.PI),
+      fk(5.2, [0.73, 0.58], -2 * Math.PI),
+      fk(5.33, [0.823, 0.49], -2 * Math.PI),
+      fk(5.4, [0.823, 0.49], -2 * Math.PI, Math.PI / 2),
+      fk(5.47, [0.80, 0.52], -2 * Math.PI, Math.PI),
+      fk(5.53, [0.78, 0.55], -2 * Math.PI - 0.9, Math.PI),
+      fk(5.6, [0.73, 0.63], -2 * Math.PI - 2.6, Math.PI),
+      fk(5.67, [0.82, 0.58], -2 * Math.PI - 4.6, Math.PI),
+      { t: 5.73, at: csAt(0.80, 0.66), r: KR_IDLE.r },
+      { t: 5.95, ...KR_IDLE }] },
+  // slash A: fast right-to-left cut with the palm rolling up, whip back right and drop out of view, come back up
+  lightA: { dur: 0.72, hitAt: 0.05, nextAt: 0.4, ease: 'linear', range: KNIFE.lightRange, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
+    streak: { from: [(0.78 - 0.5) / 0.5625 + 0.5, 0.72], to: [(0.3 - 0.5) / 0.5625 + 0.5, 0.6], d: 0.55, width: 0.03 },
+    keys: [{ t: 0, ...KR_IDLE },
+      { t: 0.05, at: csAt(0.32, 0.62), r: [0.5, 0, 2.7] },
+      { t: 0.1, at: csAt(0.62, 0.55), r: [0, 0, 0.6] },
+      { t: 0.16, at: csAt(0.86, 1.2), r: [0.4, 0, 0.9] },
+      { t: 0.42, at: csAt(0.55, 1.3), r: [0, 0, 1.2] },
+      { t: 0.55, at: csAt(0.6, 0.92), r: [0, -0.1, 1.3] },
+      { t: 0.72, ...KR_IDLE }] },
+  // slash B: wind to the left, backhand cut left-to-right, out the bottom right, come back up
+  lightB: { dur: 0.72, hitAt: 0.1, nextAt: 0.42, ease: 'linear', range: KNIFE.lightRange, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
+    streak: { from: [(0.3 - 0.5) / 0.5625 + 0.5, 0.7], to: [(0.9 - 0.5) / 0.5625 + 0.5, 0.58], d: 0.55, width: 0.03 },
+    keys: [{ t: 0, ...KR_IDLE },
+      { t: 0.05, at: csAt(0.34, 0.72), r: [0.3, 0, 2.4] },
+      { t: 0.1, at: csAt(0.72, 0.6), r: [0, 0, 0.8] },
+      { t: 0.15, at: csAt(0.95, 0.75), r: [0, 0, 0.5] },
+      { t: 0.2, at: csAt(1.05, 1.2), r: [0.3, 0, 0.6] },
+      { t: 0.45, at: csAt(0.55, 1.3), r: [0, 0, 1.2] },
+      { t: 0.57, at: csAt(0.6, 0.92), r: [0, -0.1, 1.3] },
+      { t: 0.72, ...KR_IDLE }] },
+  // stab: dip, raise the arm high over the top right and hold, then drive down diagonally to the center
+  // CS 133.0-133.85: fist stands up with the knuckles to the camera and the claw pointing forward-left (thin),
+  // lifts to the top right and holds, then slides down diagonally to the right-center ("슥"); the off hand
+  // reaches forward at the bottom left during the strike
+  heavy: { dur: 1.0, hitAt: 0.7, ease: 'linear', range: KNIFE.heavyRange, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
+    streak: { from: [(0.86 - 0.5) / 0.5625 + 0.5, 0.24], to: [(0.67 - 0.5) / 0.5625 + 0.5, 0.66], d: 0.6, width: 0.03 },
+    keys: [{ t: 0, ...KR_IDLE },
+      { t: 0.07, at: csAt(0.66, 0.88), r: [-0.3, -0.1, 1.3] },
+      { t: 0.15, at: csAt(0.78, 0.5, 0.53), r: KR_STAB },
+      { t: 0.22, at: csAt(0.88, 0.18, 0.55), r: KR_STAB },
+      { t: 0.5, at: csAt(0.89, 0.2, 0.55), r: [-1.42, 0, 1.28], la: csAt(0.22, 0.95, 0.42) },
+      { t: 0.56, at: csAt(0.86, 0.24, 0.55), r: KR_STAB, la: csAt(0.25, 0.9, 0.42) },
+      { t: 0.63, at: csAt(0.8, 0.36, 0.55), r: [-1.45, 0, 1.3], la: csAt(0.25, 0.9, 0.42) },
+      { t: 0.7, at: csAt(0.74, 0.5, 0.55), r: KR_STAB, la: csAt(0.25, 0.9, 0.42) },
+      { t: 0.77, at: csAt(0.68, 0.62, 0.53), r: [-1.2, 0, 1.3], la: csAt(0.25, 0.9, 0.42) },
+      { t: 0.86, at: csAt(0.65, 0.72), r: [-0.6, -0.1, 1.33], la: csAt(0.2, 0.98, 0.42) },
+      { t: 1.0, ...KR_IDLE }] },
+};
+for (const anim of Object.values(KARAMBIT_ANIMS)) {
+  for (const k of anim.keys) {
+    if (k.at) k.p = refPos(...k.at);
+    if (k.la) k.lp = refPos(...k.la);
+    if (k.kat) k.kp = refPos(...k.kat);
+  }
+  if (anim.streak) {
+    const s = anim.streak;
+    s.a = refPos(s.from[0], s.from[1], s.d);
+    s.b = refPos(s.to[0], s.to[1], s.d);
+  }
+}
+KR_IDLE.p = refPos(...KR_IDLE.at);
+const KNIFE_SKIN_ANIMS = { karambit: KARAMBIT_ANIMS };
+const KNIFE_SKIN_IDLE = { karambit: KR_IDLE };
+const knifeIdle = () => KNIFE_SKIN_IDLE[knifeSkin] || K_IDLE;
+// the selected knife's own version of an animation, else the shared one
+const knifeAnim = name => (KNIFE_SKIN_ANIMS[knifeSkin] && KNIFE_SKIN_ANIMS[knifeSkin][name]) || KNIFE_ANIMS[name];
+
+// long slash streak (light attacks): a thin white strip from where the swing starts to where it ends
+const streakMat = new THREE.MeshBasicMaterial({ color: 0xf4f8ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+const knifeStreak = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), streakMat);
+knifeRoot.add(knifeStreak);
+let streakT = 0;
+function showStreak(s) {
+  knifeStreak.position.set((s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2, (s.a[2] + s.b[2]) / 2);
+  knifeStreak.rotation.set(0, 0, Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]));
+  knifeStreak.scale.set(Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]), s.width, 1);
+  streakT = 0.2;
+}
+
+// from = the pose the hand was in when this animation started, so attacks blend in instead of snapping
+const knifeState = { anim: null, t: 0, combo: 0, hitDone: false, from: null, last: null };
+
+function sampleKnife(anim, t) {
+  const keys = anim.keys;
+  let i = 0;
+  while (i < keys.length - 2 && t > keys[i + 1].t) i++;
+  const a = i === 0 && knifeState.from ? { t: keys[0].t, ...knifeState.from } : keys[i], b = keys[i + 1];
+  let u = Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)));
+  if (anim.ease !== 'linear') u = u * u * (3 - 2 * u);
+  const mix = (k, def) => (a[k] || def).map((v, j) => v + ((b[k] || def)[j] - v) * u);
+  const pose = { p: mix('p'), r: mix('r'), lp: mix('lp', LH_REST), open: !!a.open, pivotRing: !!anim.pivotRing };
+  if (a.kp && b.kp) {           // knife in the air: its own position and blade angle
+    pose.kp = mix('kp');
+    pose.ka = a.ka + (b.ka - a.ka) * u;
+    pose.kt = (a.kt || 0) + ((b.kt || 0) - (a.kt || 0)) * u;
+  }
+  return pose;
+}
+
+function startKnifeAnim(name, fromCurrent = true) {
+  knifeState.anim = knifeAnim(name);
+  playKnifeSound(name);
+  if (net.mode === 'online' && name !== 'inspect') netSend({ t: 'anim', name });
+  knifeState.t = 0;
+  knifeState.hitDone = false;
+  knifeState.from = fromCurrent && knifeState.last ? knifeState.last : null;
+}
+
+const knifeRay = new THREE.Raycaster();
+function knifeStrike(anim) {
+  camera.updateMatrixWorld();
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  const rightV = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  const targets = [...worldMeshes(), ...dummies.filter(d => !d.userData.dead)];
+  let best = null;
+  // a small fan of rays so the swing is forgiving like real melee
+  for (const [dx, dy] of [[0, 0], [-0.07, 0], [0.07, 0], [0, -0.06], [0, 0.06]]) {
+    const dir = fwd.clone().addScaledVector(rightV, dx).addScaledVector(up, dy).normalize();
+    knifeRay.set(camera.position, dir);
+    knifeRay.far = anim.range;
+    const hit = knifeRay.intersectObjects(targets, true).find(h => h.object.isMesh);
+    if (hit && (!best || (hit.object.userData.dummy && !best.object.userData.dummy) || hit.distance < best.distance - 0.3)) best = hit;
+  }
+  if (!best) return;
+  const normal = best.face ? best.face.normal.clone().transformDirection(best.object.matrixWorld) : fwd.clone().negate();
+  const dummy = best.object.userData.dummy;
+  if (!dummy) {
+    spawnConfetti(best.point, normal, best.object.material.color.getHex(), 6);
+    return;
+  }
+  const u = dummy.userData;
+  const facing = new THREE.Vector3(Math.sin(dummy.rotation.y), 0, Math.cos(dummy.rotation.y));
+  const toDummy = dummy.position.clone().sub(player.position).setY(0).normalize();
+  const backstab = facing.dot(toDummy) > 0.3;   // dummy faces away from us
+  if (reportHit(dummy, backstab ? anim.back : anim.dmg, backstab, 'knife')) {
+    if (u.team !== net.myTeam) { u.hitT = 0.15; spawnConfetti(best.point, normal, best.object.material.color.getHex(), 12); }
+    return;
+  }
+  u.hp -= backstab ? anim.back : anim.dmg;
+  u.hitT = 0.15;
+  showHitmarker(backstab);
+  spawnConfetti(best.point, normal, best.object.material.color.getHex(), 12);
+  if (u.hp <= 0) {
+    u.dead = true;
+    u.deadT = 0;
+    showKill(backstab ? 'BACKSTAB' : 'KNIFED');
+  }
+}
+
+// ── WEAPON SLOTS (1 = AK, 3 = 기본칼) ──
+const loadout = { current: 'rifle', next: null, phase: 'idle', h: 0 };
+const SWITCH = { lower: 0.16, raise: 0.32 };
+function requestWeapon(w) {
+  if (w === loadout.current && loadout.phase !== 'lower') return;
+  loadout.next = w;
+  loadout.phase = 'lower';
+  cancelReload();
+  knifeState.anim = null;
+  knifeState.airQ = null;
+}
+document.addEventListener('keydown', e => {
+  if (!isLocked) return;
+  if (e.code === 'Digit1') {
+    if (loadout.current === 'rifle' && loadout.phase === 'idle') cancelReload();   // tap your weapon key to cancel a reload
+    else requestWeapon('rifle');
+  }
+  if (e.code === 'Digit3') requestWeapon('knife');
+  if (e.code === 'KeyY' && loadout.current === 'knife' && loadout.phase === 'idle' && !knifeState.anim) startKnifeAnim('inspect');
+});
+function updateLoadout(dt) {
+  if (loadout.phase === 'lower') {
+    loadout.h = Math.min(1, loadout.h + dt / SWITCH.lower);
+    if (loadout.h >= 1) {
+      loadout.current = loadout.next;
+      loadout.phase = 'raise';
+      if (loadout.current === 'rifle') sfx.rifleRaise();
+      // the knife has its own draw motion (traced from Valorant) instead of the generic raise
+      if (loadout.current === 'knife') {
+        loadout.h = 0;
+        loadout.phase = 'idle';
+        startKnifeAnim('draw', false);
+      }
+    }
+  } else if (loadout.phase === 'raise') {
+    loadout.h = Math.max(0, loadout.h - dt / SWITCH.raise);
+    if (loadout.h <= 0) loadout.phase = 'idle';
+  }
+  viewmodelGroup.visible = loadout.current === 'rifle' && !player.dead;
+  knifeRoot.visible = loadout.current === 'knife' && !player.dead;
+}
+
+function updateKnife(dt) {
+  const ready = loadout.phase === 'idle';
+  const cur = knifeState.anim;
+  // free = nothing playing, inspecting, or a light swing past its combo point
+  const free = !cur || cur.isInspect || (cur.nextAt !== undefined && knifeState.t >= cur.nextAt);
+  if (ready && free) {
+    if (ads.held) startKnifeAnim('heavy');
+    else if (firing) { startKnifeAnim(knifeState.combo % 2 ? 'lightB' : 'lightA'); knifeState.combo++; }
+  }
+  let pose = { ...knifeIdle(), lp: LH_REST };
+  const a = knifeState.anim;
+  if (a) {
+    knifeState.t += dt;
+    if (a.hitAt !== undefined && !knifeState.hitDone && knifeState.t >= a.hitAt) {
+      knifeState.hitDone = true;
+      knifeStrike(a);
+      if (a.streak) showStreak(a.streak);
+      if (a.trail) {
+        knifeTrail.position.set(...a.trail.pos);
+        knifeTrail.rotation.set(0, 0, 0);
+        knifeTrail.geometry.dispose();
+        knifeTrail.geometry = new THREE.RingGeometry(a.trail.r0, a.trail.r1, 32, 1, a.trail.start, a.trail.len);
+        trailT = 0.16;
+      }
+    }
+    if (knifeState.t < a.dur) pose = sampleKnife(a, knifeState.t);
+    if (knifeState.t >= a.dur) knifeState.anim = null;
+  } else if (knifeState.combo && !firing) {
+    knifeState.combo = 0;   // combo restarts at slash A after the hand settles
+  }
+  knifeState.last = { p: pose.p.slice(), r: pose.r.slice(), lp: pose.lp.slice() };
+  trailT = Math.max(0, trailT - dt);
+  trailMat.opacity = (trailT / 0.16) * 0.75;
+  streakT = Math.max(0, streakT - dt);
+  streakMat.opacity = Math.min(1, streakT / 0.2 * 1.4) * 0.85;
+
+  const speedNow = Math.hypot(player.velocity.x, player.velocity.z);
+  const time = performance.now() * 0.001;
+  const moving = speedNow > 0.5 && player.isGrounded;
+  const bobX = moving ? Math.sin(time * 12) * 0.012 : 0;
+  const bobY = moving ? -Math.abs(Math.cos(time * 12)) * 0.01 : Math.sin(time * 1.5) * 0.003;
+  knifeHand.position.set(pose.p[0], pose.p[1], pose.p[2]);
+  knifeHand.rotation.set(pose.r[0], pose.r[1], pose.r[2]);
+  knifeFist.visible = !pose.open;
+  knifeOpenHand.visible = !!pose.open;
+  if (pose.kp) {
+    // tossed: flat side to the camera, blade angle ka (0 = up, counter-clockwise positive)
+    knifeModel.position.set(pose.kp[0], pose.kp[1], pose.kp[2]);
+    knifeModel.quaternion.setFromAxisAngle(_fzAxis, pose.ka).multiply(KNIFE_FLIP);
+    if (pose.kt) knifeModel.quaternion.premultiply(_tiltQ.setFromAxisAngle(_fxAxis, pose.kt));   // flip toward the camera
+    // ring spin: kp is the finger ring, so shift the knife so it turns around the ring instead of its grip
+    const pivot = pose.pivotRing && KNIFE_SKINS[knifeSkin].pivot;
+    if (pivot) knifeModel.position.sub(_pivotTmp.copy(pivot).multiplyScalar(knifeModel.scale.x).applyQuaternion(knifeModel.quaternion));
+    knifeState.airP = knifeModel.position.clone();
+    knifeState.airQ = knifeModel.quaternion.clone();
+    knifeState.catchT = 0;
+  } else {
+    knifeModel.position.copy(knifeHand.position);
+    knifeModel.quaternion.copy(knifeHand.quaternion).multiply(KNIFE_FLIP);
+    const grip = KNIFE_SKINS[knifeSkin].grip;
+    if (grip) knifeModel.quaternion.multiply(grip);
+    // just caught: ease from the last in-air pose into the grip instead of snapping
+    if (knifeState.airQ) {
+      knifeState.catchT += dt;
+      let u = Math.min(1, knifeState.catchT / KNIFE_CATCH_BLEND);
+      u = 1 - (1 - u) ** 3;   // ease-out: keeps the spin's momentum into the catch, then settles
+      _gripQ.copy(knifeModel.quaternion);   // slerpQuaternions overwrites `this` first, so the target needs its own copy
+      knifeModel.position.lerpVectors(knifeState.airP, knifeModel.position.clone(), u);
+      knifeModel.quaternion.slerpQuaternions(knifeState.airQ, _gripQ, u);
+      if (u >= 1) knifeState.airQ = null;
+    }
+  }
+  knifeRoot.position.set(KNIFE_ROOT[0] + bobX + vmSway.x, KNIFE_ROOT[1] + bobY + vmSway.y - 0.35 * loadout.h, KNIFE_ROOT[2]);
+  knifeRoot.rotation.set(-vmSway.y * 2 - 0.8 * loadout.h, vmSway.x * 2, bobX * 1.5);
+  poseKnifeForearm();
+  poseKnifeLeft(pose.lp);
+}
+
+function updateShooting(dt) {
+  if (!playerCanAct()) { firing = false; ads.held = false; }
+  updateLoadout(dt);
+  updateAds(dt);
+  weapon.cooldown = Math.max(0, weapon.cooldown - dt);
+  if (weapon.reloading > 0) {
+    weapon.reloading -= dt;
+    const p = 1 - weapon.reloading / weapon.reload.time;
+    if (p >= weapon.reload.fillP) weapon.ammo = weapon.reloadFill;
+    // CoD-style: once the gun is loaded, firing cancels the swing-back
+    if (weapon.reloading <= 0) weapon.reloading = 0;
+    else if (firing && p >= weapon.reload.readyP) cancelReload();   // past the rack: shooting cuts the swing-back
+  }
+  const rifleReady = loadout.current === 'rifle' && loadout.phase === 'idle';
+  if (loadout.current === 'knife') updateKnife(dt);
+  if (rifleReady && firing && weapon.cooldown <= 0 && weapon.reloading <= 0) {
+    if (weapon.ammo > 0) {
+      fireShot();
+      weapon.cooldown = WEAPON.fireInterval;
+    } else {
+      sfx.dryFire();
+      startReload();
+    }
+  }
+  weapon.kick = Math.max(0, weapon.kick - dt * 12);
+  applyPendingKick(dt);
+  recoverRecoil(dt);
+  if (recoil.sinceShot > RECOIL.sprayResetDelay) weapon.spray = Math.max(0, weapon.spray - RECOIL.sprayResetRate * dt);
+
+  // crosshair gap = on-screen radius of the next shot's spread cone
+  const spreadNext = currentSpread(Math.min(SPRAY.length - 1, Math.floor(weapon.spray)));
+  const targetGap = loadout.current === 'knife' ? 4
+    : Math.tan(spreadNext * Math.PI / 180) / Math.tan(camera.fov * Math.PI / 360) * (window.innerHeight / 2);
+  crosshairGap += (Math.max(4, targetGap) - crosshairGap) * Math.min(1, dt * 18);
+  crosshairEl.style.setProperty('--gap', crosshairGap.toFixed(1) + 'px');
+
+  flashTimer -= dt;
+  muzzleFlash.visible = flashTimer > 0;
+
+  for (let i = confetti.length - 1; i >= 0; i--) {
+    const c = confetti[i], u = c.userData;
+    u.life -= dt;
+    if (u.life <= 0) { scene.remove(c); confetti.splice(i, 1); continue; }
+    u.v.y -= 9 * dt;
+    u.v.multiplyScalar(1 - 2.5 * dt);
+    c.position.addScaledVector(u.v, dt);
+    c.rotation.x += u.spin.x * dt;
+    c.rotation.y += u.spin.y * dt;
+  }
+
+  hitmarkerTimer -= dt;
+  if (hitmarkerTimer <= 0) hitmarkerEl.classList.remove('show');
+  killfeedTimer -= dt;
+  if (killfeedTimer <= 0) killfeedEl.classList.remove('show');
+
+  const knifeOut = loadout.current === 'knife';
+  ammoCountEl.style.display = knifeOut ? 'none' : '';
+  const knifeName = KNIFE_SKINS[knifeSkin].name;
+  weaponNameEl.textContent = knifeOut ? knifeName : 'AK';
+  slotHintEl.textContent = `1 AK · 3 ${knifeName}`;
+  document.getElementById('ammo-cur').textContent = weapon.ammo;
+  document.getElementById('reload-text').textContent = knifeOut ? '' : weapon.reloading > 0 ? 'RELOADING' : (weapon.ammo === 0 ? 'PRESS R' : '');
+}
+
+playerGroup.position.set(0, 0, 0);
+
+// ── PLAYER PHYSICS STATE ──
+const player = {
+  position: new THREE.Vector3(0, 0, 0),
+  velocity: new THREE.Vector3(0, 0, 0),
+  radius: 0.4,
+  height: 1.9,
+  isGrounded: false,
+  isSprinting: false,
+  isDodging: false,
+  dodgeTimer: 0,
+  dodgeCooldownTimer: 0,
+  dodgeDirection: new THREE.Vector3(),
+  hp: 100,
+  dead: false,
+};
+
+// ── CAMERA STATE ──
+const cam = {
+  yaw: 0,
+  pitch: 0,
+  currentDistance: CONFIG.cameraDistance,
+};
+
+// ── INPUT ──
+const keys = {};
+const mouse = { dx: 0, dy: 0 };
+let isLocked = false;
+
+let lastMoveKey = 'KeyW';
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyW' || e.code === 'KeyA' || e.code === 'KeyS' || e.code === 'KeyD') lastMoveKey = e.code;
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+function releaseAllKeys() {
+  for (const k in keys) keys[k] = false;
+  firing = false;
+  ads.held = false;
+}
+window.addEventListener('blur', releaseAllKeys);
+document.addEventListener('visibilitychange', releaseAllKeys);
+document.addEventListener('mousemove', e => {
+  if (!isLocked) return;
+  mouse.dx += e.movementX;
+  mouse.dy += e.movementY;
+});
+
+// pointer lock
+const startScreen = document.getElementById('start-screen');
+
+function lockPointer() {
+  renderer.domElement.requestPointerLock().then(() => {
+    isLocked = true;
+    startScreen.classList.add('hidden');
+  }).catch(() => {});
+}
+
+const inGame = () => net.mode === 'practice' || net.mode === 'online';
+renderer.domElement.addEventListener('click', () => {
+  SFX.unlock();
+  if (!isLocked && inGame()) lockPointer();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  const locked = document.pointerLockElement === renderer.domElement;
+  isLocked = locked;
+  if (locked) {
+    startScreen.classList.add('hidden');
+  } else {
+    releaseAllKeys();
+    if (inGame()) startScreen.classList.remove('hidden');   // "클릭해서 계속"
+  }
+});
+
+document.addEventListener('pointerlockerror', () => {});
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Escape' && !isLocked) {
+    const panel = document.getElementById('settings-panel');
+    panel.classList.toggle('visible');
+  }
+  if (e.code === 'Tab') e.preventDefault();
+});
+
+// ── SETTINGS UI ──
+const sensSlider = document.getElementById('sens-slider');
+const distSlider = document.getElementById('dist-slider');
+const fovSlider = document.getElementById('fov-slider');
+const invertYCheck = document.getElementById('invert-y');
+
+const sensInput = document.getElementById('sens-input');
+sensSlider.addEventListener('input', e => {
+  CONFIG.sensitivity = parseFloat(e.target.value);
+  sensInput.value = CONFIG.sensitivity;
+});
+sensInput.addEventListener('change', e => {
+  let v = parseFloat(e.target.value);
+  if (isNaN(v)) v = 0.4;
+  v = Math.max(0.01, Math.min(10, v));
+  CONFIG.sensitivity = v;
+  sensInput.value = v;
+  sensSlider.value = v;
+});
+distSlider.addEventListener('input', e => {
+  CONFIG.cameraDistance = parseFloat(e.target.value);
+  document.getElementById('dist-val').textContent = CONFIG.cameraDistance.toFixed(1);
+});
+fovSlider.addEventListener('input', e => {
+  CONFIG.fov = parseInt(e.target.value);
+  camera.fov = CONFIG.fov;
+  camera.updateProjectionMatrix();
+  document.getElementById('fov-val').textContent = CONFIG.fov;
+});
+const knifeSelect = document.getElementById('knife-select');
+knifeSelect.value = knifeSkin;
+knifeSelect.addEventListener('change', e => {
+  knifeSkin = e.target.value;
+  try { localStorage.setItem('knifeSkin', knifeSkin); } catch (err) { /* storage blocked */ }
+  applyKnifeSkin();
+  if (loadout.current === 'knife') startKnifeAnim('draw', false);   // show off the new knife
+});
+document.getElementById('vol-slider').addEventListener('input', e => {
+  const v = parseFloat(e.target.value);
+  SFX.setVolume(v);
+  document.getElementById('vol-val').textContent = Math.round(v * 100);
+});
+invertYCheck.addEventListener('change', e => {
+  CONFIG.invertY = e.target.checked;
+});
+
+// click canvas to re-lock (handled above in the main click handler)
+
+// ── RAYCASTER FOR GROUND/COLLISION ──
+const raycaster = new THREE.Raycaster();
+
+function getGroundHeight(x, z) {
+  raycaster.set(new THREE.Vector3(x, 50, z), new THREE.Vector3(0, -1, 0));
+  const meshes = [floor, rampMesh, ...obstacles.map(o => o.mesh)];
+  const hits = raycaster.intersectObjects(meshes);
+  if (hits.length > 0) return hits[0].point.y;
+  return 0;
+}
+
+function checkAABBCollision(pos, radius) {
+  let corrected = pos.clone();
+  for (const obs of obstacles) {
+    const closest = new THREE.Vector3(
+      Math.max(obs.min.x, Math.min(corrected.x, obs.max.x)),
+      Math.max(obs.min.y, Math.min(corrected.y + player.height * 0.5, obs.max.y)),
+      Math.max(obs.min.z, Math.min(corrected.z, obs.max.z)),
+    );
+    const diff = new THREE.Vector3(corrected.x - closest.x, 0, corrected.z - closest.z);
+    const dist = diff.length();
+    if (dist < radius && dist > 0.001) {
+      const push = diff.normalize().multiplyScalar(radius - dist);
+      corrected.x += push.x;
+      corrected.z += push.z;
+    }
+  }
+  return corrected;
+}
+
+// ── CAMERA COLLISION ──
+function cameraCollisionCheck(from, to, maxDist) {
+  const dir = to.clone().sub(from).normalize();
+  raycaster.set(from, dir);
+  raycaster.far = maxDist;
+  const meshes = [floor, rampMesh, ...obstacles.map(o => o.mesh)];
+  const hits = raycaster.intersectObjects(meshes);
+  if (hits.length > 0 && hits[0].distance < maxDist) {
+    return hits[0].distance - CONFIG.cameraCollisionRadius;
+  }
+  return maxDist;
+}
+
+// ── GAME LOOP ──
+const clock = new THREE.Clock();
+let frameCount = 0;
+let fps = 0;
+let fpsTimer = 0;
+
+function update(dt) {
+  if (!isLocked) return;
+
+  // ── Camera rotation from mouse ──
+  // scale with zoom so aiming in ADS feels the same on screen
+  const sensScale = Math.tan(camera.fov * Math.PI / 360) / Math.tan(CONFIG.fov * Math.PI / 360);
+  const lookYaw = -mouse.dx * CONFIG.sensitivity * 0.07 * sensScale;
+  const lookPitch = -mouse.dy * CONFIG.sensitivity * 0.07 * sensScale * (CONFIG.invertY ? -1 : 1);
+  cam.yaw += lookYaw;
+  cam.pitch += lookPitch;
+  cam.pitch = Math.max(CONFIG.cameraMinPitch, Math.min(CONFIG.cameraMaxPitch, cam.pitch));
+  compensateRecoil(lookPitch, lookYaw);
+  vmSway.x += (-mouse.dx * 0.0004 - vmSway.x) * Math.min(1, dt * 10);
+  vmSway.y += (mouse.dy * 0.0004 - vmSway.y) * Math.min(1, dt * 10);
+  vmSway.x = Math.max(-0.05, Math.min(0.05, vmSway.x));
+  vmSway.y = Math.max(-0.05, Math.min(0.05, vmSway.y));
+  mouse.dx = 0;
+  mouse.dy = 0;
+
+  // ── Movement input ──
+  const forward = new THREE.Vector3(Math.sin(cam.yaw * Math.PI / 180), 0, Math.cos(cam.yaw * Math.PI / 180));
+  const right = new THREE.Vector3(-forward.z, 0, forward.x);
+
+  let moveDir = new THREE.Vector3(0, 0, 0);
+  if (keys['KeyW']) moveDir.add(forward);
+  if (keys['KeyS']) moveDir.sub(forward);
+  if (keys['KeyD']) moveDir.add(right);
+  if (keys['KeyA']) moveDir.sub(right);
+
+  if (moveDir.length() > 0.01) moveDir.normalize();
+  const canAct = playerCanAct();   // frozen during the round countdown and while dead
+  if (!canAct) moveDir.set(0, 0, 0);
+
+  // ── Dodge roll (Shift) ──
+  player.dodgeCooldownTimer = Math.max(0, player.dodgeCooldownTimer - dt);
+
+  if (canAct && keys['ShiftLeft'] && player.isGrounded && !player.isDodging && player.dodgeCooldownTimer <= 0) {
+    player.isDodging = true;
+    sfx.dodge();
+    cancelReload();
+    player.dodgeTimer = CONFIG.dodgeDuration;
+    const dodgeDirMap = { KeyW: forward.clone(), KeyS: forward.clone().negate(), KeyD: right.clone(), KeyA: right.clone().negate() };
+    player.dodgeDirection = dodgeDirMap[lastMoveKey] || forward.clone();
+    keys['ShiftLeft'] = false;
+  }
+
+  if (player.isDodging) {
+    player.dodgeTimer -= dt;
+    if (player.dodgeTimer <= 0) {
+      player.isDodging = false;
+      player.dodgeTimer = 0;
+      player.dodgeCooldownTimer = CONFIG.dodgeCooldown;
+    }
+    const dodgeProgress = 1 - (player.dodgeTimer / CONFIG.dodgeDuration);
+    // ease in over the first 20%, ease out back to walk speed (no instant jolt either way)
+    const dodgeSpeedCurve = dodgeProgress < 0.2
+      ? Math.sin((dodgeProgress / 0.2) * Math.PI * 0.5)
+      : Math.cos(((dodgeProgress - 0.2) / 0.8) * Math.PI * 0.5);
+    const dodgeSpeedNow = CONFIG.walkSpeed + (CONFIG.dodgeSpeed - CONFIG.walkSpeed) * dodgeSpeedCurve;
+    player.velocity.x = player.dodgeDirection.x * dodgeSpeedNow;
+    player.velocity.z = player.dodgeDirection.z * dodgeSpeedNow;
+
+  } else {
+
+    if (player.isGrounded) {
+      // Ground: apply friction then accelerate
+      const speed = Math.sqrt(player.velocity.x * player.velocity.x + player.velocity.z * player.velocity.z);
+      // friction only when coasting; with input the accel lerp alone sets top speed = walkSpeed
+      if (speed > 0.1 && moveDir.lengthSq() < 0.0001) {
+        const drop = speed * (1 - CONFIG.groundFriction) * 60 * dt;
+        const factor = Math.max(0, (speed - drop)) / speed;
+        player.velocity.x *= factor;
+        player.velocity.z *= factor;
+      }
+      const weaponSpeedMul = loadout.current === 'knife' ? KNIFE.speedMul : 1;
+      const targetSpeed = CONFIG.walkSpeed * weaponSpeedMul * (1 + (ADS.speedMul - 1) * adsEase());
+      const accel = CONFIG.groundAccel;
+      const targetVelX = moveDir.x * targetSpeed;
+      const targetVelZ = moveDir.z * targetSpeed;
+      player.velocity.x += (targetVelX - player.velocity.x) * Math.min(1, accel * dt);
+      player.velocity.z += (targetVelZ - player.velocity.z) * Math.min(1, accel * dt);
+    } else {
+      // Air: Source-engine style air strafing (enables bhop)
+      if (moveDir.length() > 0.01) {
+        const wishDir = moveDir.clone().normalize();
+        const currentSpeed = player.velocity.x * wishDir.x + player.velocity.z * wishDir.z;
+        const addSpeed = Math.max(0, CONFIG.walkSpeed * 0.9 - currentSpeed);
+        const accelAmount = Math.min(CONFIG.airAccel * CONFIG.walkSpeed * dt, addSpeed);
+        player.velocity.x += wishDir.x * accelAmount;
+        player.velocity.z += wishDir.z * accelAmount;
+      }
+    }
+  }
+
+  // ── Gravity ──
+  player.velocity.y += CONFIG.gravity * dt;
+
+  // ── Jump (bhop: auto-jump while holding space) ──
+  if (canAct && keys['Space'] && player.isGrounded && !player.isDodging) {
+    player.velocity.y = CONFIG.jumpForce;
+    sfx.jump();
+    player.isGrounded = false;
+  }
+
+  // ── Apply velocity ──
+  player.position.x += player.velocity.x * dt;
+  player.position.z += player.velocity.z * dt;
+  player.position.y += player.velocity.y * dt;
+
+  // ── Ground check ──
+  const groundY = getGroundHeight(player.position.x, player.position.z);
+  const wasGrounded = player.isGrounded;
+  const fallSpeed = -player.velocity.y;
+  if (player.position.y <= groundY) {
+    player.position.y = groundY;
+    player.velocity.y = 0;
+    player.isGrounded = true;
+    if (!wasGrounded && fallSpeed > 3) sfx.land();
+  } else {
+    player.isGrounded = false;
+  }
+
+  // footsteps: one per stride of ground covered
+  const groundSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+  if (player.isGrounded && !player.isDodging && groundSpeed > 1.5) {
+    stepDistance += groundSpeed * dt;
+    if (stepDistance > 2.3) { stepDistance = 0; sfx.step(0.22 + Math.min(0.15, groundSpeed * 0.015)); }
+  } else if (player.isGrounded) {
+    stepDistance = 1.6;   // the first step after starting to move comes quickly
+  }
+
+  // ── Obstacle collision ──
+  player.position = checkAABBCollision(player.position, player.radius);
+
+  // ── Boundary ──
+  player.position.x = Math.max(-29, Math.min(29, player.position.x));
+  player.position.z = Math.max(-29, Math.min(29, player.position.z));
+
+  // ── Update player visual ──
+  playerGroup.position.copy(player.position);
+
+  // Hide player sprite in first person
+  charMesh.visible = false;
+
+  const tNow = performance.now() * 0.001;
+  for (const d of dummies) {
+    const u = d.userData;
+    if (u.remoteId) continue;   // other players are driven by updateNet
+    u.hitT = Math.max(0, u.hitT - dt);
+    const squash = u.hitT > 0 ? 1 + u.hitT * 1.5 : 1;
+    d.scale.set(squash, 2 - squash, 1);
+    if (u.dead) {
+      u.deadT += dt;
+      d.rotation.x = -(Math.min(1, u.deadT / 0.35) ** 2) * Math.PI / 2;
+      if (u.deadT > 3) {
+        u.dead = false;
+        u.hp = 100;
+        d.rotation.x = 0;
+      }
+      continue;
+    }
+    if (u.walks) {
+      const px = d.position.x, pz = d.position.z;
+      d.position.x = u.origin.x + Math.sin(tNow * 0.6 + u.phase) * 3;
+      d.position.z = u.origin.z + Math.cos(tNow * 0.4 + u.phase) * 2;
+      d.rotation.y = Math.atan2(d.position.x - px, d.position.z - pz);
+    } else {
+      d.rotation.y = Math.atan2(player.position.x - d.position.x, player.position.z - d.position.z);
+    }
+    animateDummy(d, tNow, u.walks);
+  }
+  playerGroup.position.copy(player.position);
+
+  // ── FPS Camera ──
+  const yawRad = cam.yaw * Math.PI / 180;
+  const pitchRad = cam.pitch * Math.PI / 180;
+
+  const eyePos = new THREE.Vector3(
+    player.position.x,
+    player.position.y + 1.6,
+    player.position.z,
+  );
+
+  camera.position.copy(eyePos);
+  const lookDir = new THREE.Vector3(
+    Math.sin(yawRad) * Math.cos(pitchRad),
+    Math.sin(pitchRad),
+    Math.cos(yawRad) * Math.cos(pitchRad),
+  );
+  camera.lookAt(eyePos.clone().add(lookDir));
+
+  updateShooting(dt);
+
+  // ── Viewmodel (arms + gun) ──
+  const speed = Math.sqrt(player.velocity.x * player.velocity.x + player.velocity.z * player.velocity.z);
+  const time = performance.now() * 0.001;
+  const moving = speed > 0.5 && player.isGrounded;
+  const bobX = moving ? Math.sin(time * 12) * 0.014 : 0;
+  const bobY = moving ? -Math.abs(Math.cos(time * 12)) * 0.012 : Math.sin(time * 1.5) * 0.003;
+  const airY = player.isGrounded ? 0 : Math.max(-0.03, Math.min(0.03, -player.velocity.y * 0.003));
+  const ae = adsEase();
+  const motionK = 1 - 0.85 * ae; // bob/sway mostly suppressed while aiming
+  const lerp = (a, b) => a + (b - a) * ae;
+  viewmodelGroup.position.set(
+    lerp(VM_BASE.x, ADS.pos.x) + (bobX + vmSway.x) * motionK,
+    lerp(VM_BASE.y, ADS.pos.y) + (bobY + airY + vmSway.y) * motionK,
+    lerp(VM_BASE.z, ADS.pos.z) + weapon.kick * 0.05 * (1 - 0.5 * ae),
+  );
+  viewmodelGroup.rotation.set(
+    VM_ROT.x * (1 - ae) - vmSway.y * 2 * motionK + weapon.kick * 0.06 * (1 - 0.6 * ae),
+    VM_ROT.y * (1 - ae) + vmSway.x * 2 * motionK,
+    VM_ROT.z * (1 - ae) + bobX * 1.5 * motionK,
+  );
+  const rk = currentReloadPose(dt);
+  chargingHandle.position.z = -0.18 + rk.ch;
+  gun.rotation.set(rk.gr[0], rk.gr[1], rk.gr[2]);
+  gun.position.set(rk.gp[0], rk.gp[1], rk.gp[2]);
+  magGroup.position.set(rk.mag[0], rk.mag[1], rk.mag[2]);
+  leftArm.position.set(rk.lh[0], rk.lh[1], rk.lh[2]);
+  poseLeftForearm(rk.lh, rk.el);
+  if (player.isDodging) {
+    viewmodelGroup.position.y -= 0.12;
+    viewmodelGroup.rotation.z += 0.35;
+  }
+  viewmodelGroup.position.y -= 0.35 * loadout.h;
+  viewmodelGroup.rotation.x -= 0.8 * loadout.h;
+
+  // ── HUD ──
+  const spd = Math.sqrt(player.velocity.x ** 2 + player.velocity.z ** 2);
+  document.getElementById('speed').textContent = spd.toFixed(1);
+  const dodgeIndicator = document.getElementById('sprint-indicator');
+  if (player.isDodging) {
+    dodgeIndicator.style.display = 'block';
+    dodgeIndicator.textContent = 'DODGE';
+  } else if (player.dodgeCooldownTimer > 0) {
+    dodgeIndicator.style.display = 'block';
+    dodgeIndicator.textContent = `DODGE (${player.dodgeCooldownTimer.toFixed(1)}s)`;
+    dodgeIndicator.style.color = '#888';
+  } else {
+    dodgeIndicator.style.display = 'none';
+    dodgeIndicator.style.color = '#ffcc00';
+  }
+
+  // ── FPS ──
+  frameCount++;
+  fpsTimer += dt;
+  if (fpsTimer >= 0.5) {
+    fps = Math.round(frameCount / fpsTimer);
+    frameCount = 0;
+    fpsTimer = 0;
+  }
+  document.getElementById('debug-info').textContent =
+    `FPS: ${fps} | Pos: ${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)} | Grounded: ${player.isGrounded}`;
+}
+
+// ── ONLINE MATCH (1v1 / 2v2, first to 5) ── server.js owns rounds, HP and deaths; this client sends its
+// own movement/shots, reports hits on others, and draws everyone else from 20 Hz snapshots.
+const net = {
+  peer: null, conn: null, hostRoom: null, send: null,   // P2P transport (see hostRoom / joinRoom)
+  id: null, mode: 'menu',                    // 'menu' | 'practice' | 'lobby' | 'online'
+  room: null, host: null, players: [],       // lobby info
+  phase: 'lobby', round: 0, score: { blue: 0, red: 0 }, timer: 0, myTeam: 'blue',
+  remotes: new Map(),                        // id -> { avatar, buf, team, name, hp, dead, label }
+  sendT: 0,
+};
+const INTERP_DELAY = 0.1;
+const tagRay = new THREE.Raycaster(), _tagFrom = new THREE.Vector3(), _tagTo = new THREE.Vector3();   // render others 100 ms in the past so there are always two snapshots to blend
+const practiceDummies = dummies.slice();
+camera.position.set(0, 1.6, 0);   // menu backdrop: stand in the arena instead of the default camera pose
+camera.lookAt(0, 1.6, 10);
+const $ = id => document.getElementById(id);
+const menuEl = $('menu'), lobbyEl = $('lobby');
+$('server-addr').textContent = location.host || '(로컬 파일)';
+try { $('name-input').value = localStorage.getItem('playerName') || ''; } catch (e) { /* storage blocked */ }
+
+function playerName() {
+  const n = $('name-input').value.trim().slice(0, 12) || ('player' + Math.floor(Math.random() * 900 + 100));
+  try { localStorage.setItem('playerName', n); } catch (e) { /* storage blocked */ }
+  return n;
+}
+function showOnly(el) {
+  for (const e of [menuEl, lobbyEl]) e.classList.toggle('hidden', e !== el);
+}
+
+// ── P2P: the room creator's browser IS the server (same rules/messages as server.js); everyone else connects
+// to it directly with WebRTC. PeerJS's free public broker is only used so players can find each other by code.
+const PEER_PREFIX = 'chanchan-fps-v1-';
+const RULES = { winScore: 5, prestart: 3, roundTime: 100, post: 3, maxHit: 150 };
+const MODES = { '1v1': 1, '2v2': 2 };   // players per team
+const SPAWNS = {
+  blue: [[-3, -24, 0], [3, -24, 0]],     // [x, z, yaw°]; yaw 0 faces +z
+  red: [[3, 24, 180], [-3, 24, 180]],
+};
+const makeRoomCode = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
+
+// host-side room: one room per host browser. clients: id -> send(msg)
+function createHostRoom(code, mode) {
+  const room = { code, mode, players: new Map(), host: 1, phase: 'lobby', round: 0, score: { blue: 0, red: 0 }, timer: 0, nextId: 1 };
+  const sendTo = (p, msg) => { try { p.send(msg); } catch (e) { /* peer gone */ } };
+  const broadcast = (msg, exceptId) => { for (const p of room.players.values()) if (p.id !== exceptId) sendTo(p, msg); };
+  const teamOf = team => [...room.players.values()].filter(p => p.team === team);
+  const lobbyInfo = () => ({ t: 'lobby', room: room.code, mode: room.mode, host: room.host, phase: room.phase, score: room.score,
+    players: [...room.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team })) });
+
+  function startRound() {
+    room.round += 1; room.phase = 'prestart'; room.timer = RULES.prestart;
+    const spawns = {};
+    for (const team of ['blue', 'red']) {
+      teamOf(team).forEach((p, i) => {
+        const s = SPAWNS[team][i % SPAWNS[team].length];
+        p.hp = 100; p.dead = false;
+        p.state = { p: [s[0], 0, s[1]], yaw: s[2], pitch: 0, w: 'rifle' };
+        spawns[p.id] = s;
+      });
+    }
+    broadcast({ t: 'round', phase: 'prestart', round: room.round, score: room.score, timer: room.timer, spawns });
+  }
+  function endRound(winner, reason) {
+    if (winner) room.score[winner] += 1;
+    room.phase = 'post'; room.timer = RULES.post;
+    broadcast({ t: 'round', phase: 'post', round: room.round, score: room.score, winner, reason, timer: room.timer });
+  }
+  function endMatch(winner) {
+    broadcast({ t: 'end', winner, score: room.score });
+    room.phase = 'lobby';
+    broadcast(lobbyInfo());
+  }
+  function checkRoundOver() {
+    if (room.phase !== 'live') return;
+    const b = teamOf('blue').filter(p => !p.dead).length, r = teamOf('red').filter(p => !p.dead).length;
+    if (b === 0 || r === 0) endRound(b > 0 ? 'blue' : r > 0 ? 'red' : null, 'elim');
+  }
+  function tick(dt) {
+    if (room.phase === 'lobby') return;
+    room.timer -= dt;
+    if (room.phase === 'prestart' && room.timer <= 0) {
+      room.phase = 'live'; room.timer = RULES.roundTime;
+      broadcast({ t: 'round', phase: 'live', round: room.round, score: room.score, timer: room.timer });
+    } else if (room.phase === 'live' && room.timer <= 0) {
+      const alive = t => teamOf(t).filter(p => !p.dead);
+      const hp = t => alive(t).reduce((s, p) => s + p.hp, 0);
+      const b = alive('blue').length, r = alive('red').length;
+      endRound(b !== r ? (b > r ? 'blue' : 'red') : hp('blue') !== hp('red') ? (hp('blue') > hp('red') ? 'blue' : 'red') : null, 'time');
+    } else if (room.phase === 'post' && room.timer <= 0) {
+      const w = room.score.blue >= RULES.winScore ? 'blue' : room.score.red >= RULES.winScore ? 'red' : null;
+      if (w) endMatch(w); else startRound();
+    }
+    broadcast({ t: 'snap', timer: room.timer, phase: room.phase,
+      ps: [...room.players.values()].map(p => ({ id: p.id, ...p.state, hp: p.hp, dead: p.dead })) });
+  }
+  function addPlayer(send) {
+    const id = room.nextId++;
+    room.players.set(id, { id, send, name: 'player', team: 'blue', hp: 100, dead: false, state: { p: [0, 0, 0], yaw: 0, pitch: 0, w: 'rifle' }, joined: false });
+    return id;
+  }
+  function leave(id) {
+    if (!room.players.delete(id)) return;
+    broadcast({ t: 'left', id });
+    if (room.phase !== 'lobby') {
+      const b = teamOf('blue').length, r = teamOf('red').length;
+      if (b === 0 || r === 0) return endMatch(b > 0 ? 'blue' : 'red');
+      checkRoundOver();
+    }
+    broadcast(lobbyInfo());
+  }
+  function handle(id, m) {
+    const me = room.players.get(id);
+    if (!me || !m || typeof m.t !== 'string') return;
+    if (m.t === 'create' || m.t === 'join') {
+      if (me.joined) return;
+      if (m.t === 'join' && String(m.room || '').toUpperCase() !== room.code) return sendTo(me, { t: 'error', msg: '방을 찾을 수 없어요' });
+      if (teamOf('blue').filter(p => p.joined).length + teamOf('red').filter(p => p.joined).length >= MODES[room.mode] * 2) {
+        sendTo(me, { t: 'error', msg: '방이 꽉 찼어요' }); return room.players.delete(id);
+      }
+      if (room.phase !== 'lobby') { sendTo(me, { t: 'error', msg: '이미 경기 중인 방이에요' }); return room.players.delete(id); }
+      me.joined = true;
+      me.name = String(m.name || 'player').slice(0, 12) || 'player';
+      me.team = teamOf('blue').filter(p => p.joined && p !== me).length <= teamOf('red').filter(p => p.joined && p !== me).length ? 'blue' : 'red';
+      sendTo(me, { t: 'welcome', id });
+      broadcast(lobbyInfo());
+      return;
+    }
+    switch (m.t) {
+      case 'team':
+        if (room.phase === 'lobby' && (m.team === 'blue' || m.team === 'red') && teamOf(m.team).length < MODES[room.mode]) {
+          me.team = m.team; broadcast(lobbyInfo());
+        }
+        break;
+      case 'start':
+        if (id !== room.host || room.phase !== 'lobby') return;
+        if (!teamOf('blue').length || !teamOf('red').length) return sendTo(me, { t: 'error', msg: '양 팀에 최소 1명씩 있어야 해요' });
+        room.score = { blue: 0, red: 0 }; room.round = 0;
+        startRound();
+        break;
+      case 'state':
+        if (room.phase === 'lobby' || me.dead || !Array.isArray(m.p)) return;
+        me.state = { p: m.p.slice(0, 3).map(Number), yaw: +m.yaw || 0, pitch: +m.pitch || 0, w: m.w === 'knife' ? 'knife' : 'rifle', ads: !!m.ads };
+        break;
+      case 'shot':
+        if (room.phase === 'live' && !me.dead) broadcast({ t: 'shot', id, o: m.o, e: m.e }, id);
+        break;
+      case 'anim':
+        if (!me.dead) broadcast({ t: 'anim', id, name: String(m.name || '') }, id);
+        break;
+      case 'hit': {
+        const target = room.players.get(m.target);
+        if (room.phase !== 'live' || me.dead || !target || target.dead || target.team === me.team) return;
+        const dmg = Math.max(0, Math.min(RULES.maxHit, Number(m.dmg) || 0));
+        target.hp -= dmg;
+        broadcast({ t: 'hp', id: target.id, hp: Math.max(0, target.hp), by: id, head: !!m.head });
+        if (target.hp <= 0) {
+          target.dead = true;
+          broadcast({ t: 'kill', killer: id, victim: target.id, head: !!m.head, w: m.w === 'knife' ? 'knife' : 'rifle' });
+          checkRoundOver();
+        }
+        break;
+      }
+    }
+  }
+  let last = performance.now();
+  const timer = setInterval(() => { const now = performance.now(); tick((now - last) / 1000); last = now; }, 50);
+  return { code, handle, addPlayer, leave, stop: () => clearInterval(timer) };
+}
+
+// ── transports ──
+function netError(msg) {
+  if (net.mode === 'lobby') $('lobby-msg').textContent = msg; else $('menu-error').textContent = msg;
+}
+function hostRoom(mode, attempt = 0) {
+  if (typeof Peer === 'undefined') return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
+  const code = makeRoomCode();
+  const peer = new Peer(PEER_PREFIX + code, { debug: 0 });
+  net.peer = peer;
+  $('menu-error').textContent = '방 여는 중…';
+  peer.on('open', () => {
+    const room = createHostRoom(code, mode);
+    net.hostRoom = room;
+    // the host plays through a local loopback (async, like a real connection)
+    const myId = room.addPlayer(msg => queueMicrotask(() => onNetMessage(msg)));
+    net.send = msg => room.handle(myId, msg);
+    $('menu-error').textContent = '';
+    net.send({ t: 'create', name: playerName(), mode });
+    peer.on('connection', conn => {
+      conn.on('open', () => {
+        const id = room.addPlayer(msg => conn.open && conn.send(msg));
+        conn.on('data', m => room.handle(id, m));
+        conn.on('close', () => room.leave(id));
+        conn.on('error', () => room.leave(id));
+      });
+    });
+  });
+  peer.on('error', err => {
+    if (err.type === 'unavailable-id' && attempt < 5) { peer.destroy(); return hostRoom(mode, attempt + 1); }   // code taken: pick another
+    netError('방을 열 수 없어요 (' + err.type + ')');
+  });
+  peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });   // keep the code reachable for late joiners
+}
+function joinRoom(code) {
+  if (typeof Peer === 'undefined') return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
+  const peer = new Peer({ debug: 0 });
+  net.peer = peer;
+  $('menu-error').textContent = '방장에게 연결 중…';
+  const giveUp = setTimeout(() => {
+    if (net.mode === 'menu') { netError('방장 컴퓨터에 연결할 수 없어요 (네트워크가 P2P를 막고 있을 수 있어요)'); peer.destroy(); }
+  }, 12000);
+  peer.on('open', () => {
+    const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
+    net.conn = conn;
+    conn.on('open', () => {
+      clearTimeout(giveUp);
+      $('menu-error').textContent = '';
+      net.send = msg => { if (conn.open) conn.send(msg); };
+      net.send({ t: 'join', name: playerName(), room: code });
+    });
+    conn.on('data', m => { try { onNetMessage(m); } catch (e) { console.error(e); } });
+    conn.on('close', () => {
+      if (net.conn !== conn) return;
+      if (net.mode === 'lobby' || net.mode === 'online') { leaveOnline(); $('menu-error').textContent = '방장이 나갔거나 연결이 끊겼어요'; }
+    });
+  });
+  peer.on('error', err => {
+    clearTimeout(giveUp);
+    netError(err.type === 'peer-unavailable' ? '방을 찾을 수 없어요 (코드 확인)' : '연결 실패 (' + err.type + ')');
+  });
+}
+function closeTransport() {
+  if (net.hostRoom) { net.hostRoom.stop(); net.hostRoom = null; }
+  const conn = net.conn; net.conn = null;
+  if (conn) conn.close();
+  if (net.peer) { net.peer.destroy(); net.peer = null; }
+  net.send = null;
+}
+const netSend = msg => { if (net.send) net.send(msg); };
+
+// ── avatars for other players: the paper dummy holding a paper AK, with a floating name tag ──
+function makeNameTag(name, team) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 64;
+  const g = c.getContext('2d');
+  g.font = 'bold 34px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.7)'; g.strokeText(name, 128, 32);
+  g.fillStyle = team === 'blue' ? '#9cc1ff' : '#ff9d95'; g.fillText(name, 128, 32);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  s.scale.set(1.2, 0.3, 1);
+  s.position.y = 2.25;
+  s.raycast = () => {};   // name tags never block bullets (sprites also need a camera to raycast)
+  return s;
+}
+function makeAvatar(p) {
+  const d = createDummy(p.team);
+  const gun = new THREE.Group();
+  part(gun, 0.06, 0.09, 0.62, 0x2e2c2a, 0, 0, 0.12);                       // receiver + barrel
+  part(gun, 0.05, 0.12, 0.06, C.mag, 0, -0.09, 0.14, 0.25);                 // magazine
+  part(gun, 0.05, 0.08, 0.22, C.wood, 0, -0.02, -0.25);                     // stock
+  gun.position.set(0, -0.5, 0.05);
+  gun.rotation.x = Math.PI / 2;      // the arm points forward, so the gun lines up with it
+  d.userData.armR.add(gun);
+  const flash = new THREE.Mesh(new THREE.CircleGeometry(0.12, 8), new THREE.MeshBasicMaterial({ color: 0xffe066, side: THREE.DoubleSide }));
+  flash.position.set(0, -0.5, 0.5);
+  flash.rotation.x = Math.PI / 2;
+  flash.visible = false;
+  flash.raycast = () => {};
+  d.userData.armR.add(flash);
+  gun.traverse(o => { if (o.isMesh) o.userData.dummy = d; });   // hitting their gun counts as a body hit
+  d.userData.tag = makeNameTag(p.name, p.team);
+  d.add(d.userData.tag);
+  d.userData.remoteId = p.id;
+  d.userData.team = p.team;
+  d.userData.gun = gun;
+  d.userData.flash = flash;
+  d.userData.flashT = 0;
+  scene.add(d);
+  return d;
+}
+function clearRemotes() {
+  for (const r of net.remotes.values()) scene.remove(r.avatar);
+  net.remotes.clear();
+}
+function syncRemotes() {
+  for (const p of net.players) {
+    if (p.id === net.id || net.remotes.has(p.id)) continue;
+    const avatar = makeAvatar(p);
+    net.remotes.set(p.id, { avatar, buf: [], team: p.team, name: p.name, hp: 100, dead: false });
+  }
+  for (const [id, r] of net.remotes) {
+    if (!net.players.some(p => p.id === id)) { scene.remove(r.avatar); net.remotes.delete(id); }
+  }
+  // remote avatars are the only shootable targets online
+  dummies.length = 0;
+  for (const r of net.remotes.values()) dummies.push(r.avatar);
+}
+const remoteName = id => id === net.id ? '나' : (net.remotes.get(id) || {}).name || '?';
+const remoteTeam = id => id === net.id ? net.myTeam : (net.remotes.get(id) || {}).team;
+
+// ── modes ──
+function startPractice() {
+  net.mode = 'practice';
+  showOnly(null);
+  dummies.length = 0;
+  for (const d of practiceDummies) { d.visible = true; dummies.push(d); }
+  player.hp = 100; player.dead = false;
+  lockPointer();
+}
+function enterLobby() {
+  net.mode = 'lobby';
+  showOnly(lobbyEl);
+  if (document.pointerLockElement) document.exitPointerLock();
+  $('scorebar').classList.remove('show');
+  $('dead-msg').style.display = 'none';
+}
+function leaveOnline() {
+  closeTransport();
+  clearRemotes();
+  net.mode = 'menu';
+  for (const d of practiceDummies) d.visible = true;
+  dummies.length = 0;
+  for (const d of practiceDummies) dummies.push(d);
+  player.hp = 100; player.dead = false;
+  $('scorebar').classList.remove('show');
+  $('dead-msg').style.display = 'none';
+  if (document.pointerLockElement) document.exitPointerLock();
+  showOnly(menuEl);
+}
+function startOnlineMatch() {
+  net.mode = 'online';
+  showOnly(null);
+  for (const d of practiceDummies) d.visible = false;
+  syncRemotes();
+  $('scorebar').classList.add('show');
+  if (!isLocked) startScreen.classList.remove('hidden');   // others need one click to grab the mouse
+}
+
+$('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
+const create = mode => { SFX.unlock(); closeTransport(); $('menu-error').textContent = ''; hostRoom(mode); };
+$('btn-create-1v1').onclick = () => create('1v1');
+$('btn-create-2v2').onclick = () => create('2v2');
+$('btn-join').onclick = () => {
+  SFX.unlock();
+  $('menu-error').textContent = '';
+  const code = $('code-input').value.trim().toUpperCase();
+  if (code.length !== 4) { $('menu-error').textContent = '4글자 방 코드를 입력해 주세요'; return; }
+  closeTransport();
+  joinRoom(code);
+};
+$('btn-start').onclick = () => netSend({ t: 'start' });
+$('btn-swap').onclick = () => netSend({ t: 'team', team: net.myTeam === 'blue' ? 'red' : 'blue' });
+$('btn-leave').onclick = leaveOnline;
+$('btn-to-menu').onclick = () => {
+  $('settings-panel').classList.remove('visible');
+  startScreen.classList.add('hidden');
+  leaveOnline();
+};
+
+function renderLobby() {
+  $('lobby-code').textContent = net.room;
+  $('lobby-mode').textContent = net.roomMode === '2v2' ? '2대2' : '1대1';
+  for (const team of ['blue', 'red']) {
+    $('lobby-' + team).innerHTML = '';
+    for (const p of net.players.filter(q => q.team === team)) {
+      const row = document.createElement('div');
+      row.textContent = p.name + (p.id === net.host ? ' 👑' : '') + (p.id === net.id ? ' (나)' : '');
+      $('lobby-' + team).appendChild(row);
+    }
+  }
+  const isHost = net.host === net.id;
+  $('btn-start').disabled = !isHost;
+  $('lobby-msg').textContent = isHost ? '양 팀에 1명 이상 있으면 시작할 수 있어요' : '방장이 시작하길 기다리는 중…';
+}
+
+// ── HUD helpers ──
+let bannerT = 0;
+function showBanner(html, secs = 2) { $('banner').innerHTML = html; $('banner').classList.add('show'); bannerT = secs; }
+function addFeed(html) {
+  const el = document.createElement('div');
+  el.innerHTML = html;
+  $('feed').prepend(el);
+  setTimeout(() => el.remove(), 5000);
+  while ($('feed').children.length > 5) $('feed').lastChild.remove();
+}
+const teamSpan = (id) => `<span class="${remoteTeam(id)}">${remoteName(id)}</span>`;
+const TEAM_KO = { blue: '블루', red: '레드' };
+let hurtT = 0;
+
+function spawnLocal(s) {
+  player.position.set(s[0], getGroundHeight(s[0], s[1]), s[1]);
+  player.velocity.set(0, 0, 0);
+  player.isGrounded = true;
+  cam.yaw = s[2]; cam.pitch = 0;
+  recoil.pitch = recoil.yaw = recoil.pendPitch = recoil.pendYaw = 0;
+  player.hp = 100; player.dead = false;
+  player.isDodging = false;
+  weapon.ammo = WEAPON.magSize; weapon.reloading = 0; weapon.spray = 0;
+  knifeState.anim = null;
+  $('dead-msg').style.display = 'none';
+}
+
+function onNetMessage(m) {
+  switch (m.t) {
+    case 'welcome': net.id = m.id; break;
+    case 'error':
+      if (net.mode === 'lobby') $('lobby-msg').textContent = m.msg; else $('menu-error').textContent = m.msg;
+      break;
+    case 'lobby':
+      net.room = m.room; net.roomMode = m.mode; net.host = m.host; net.players = m.players;
+      net.myTeam = (m.players.find(p => p.id === net.id) || {}).team || net.myTeam;
+      if (net.mode === 'menu' || net.mode === 'lobby') enterLobby();
+      if (net.mode === 'lobby') renderLobby();
+      else syncRemotes();
+      break;
+    case 'round':
+      net.phase = m.phase; net.round = m.round; net.score = m.score; net.timer = m.timer;
+      if (m.phase === 'prestart') {
+        if (net.mode !== 'online') startOnlineMatch();
+        if (m.spawns && m.spawns[net.id]) spawnLocal(m.spawns[net.id]);
+        for (const r of net.remotes.values()) { r.dead = false; r.hp = 100; r.buf.length = 0; r.avatar.userData.dead = false; r.avatar.rotation.x = 0; }
+        showBanner(`ROUND ${m.round}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}</small>`, 2.5);
+      } else if (m.phase === 'live') {
+        showBanner('시작!', 0.8);
+      } else if (m.phase === 'post') {
+        const txt = !m.winner ? '무승부' : m.winner === net.myTeam ? '라운드 승리' : '라운드 패배';
+        showBanner(`${txt}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${m.reason === 'time' ? ' · 시간 종료' : ''}</small>`, 2.8);
+      }
+      break;
+    case 'snap':
+      net.timer = m.timer; net.phase = m.phase;
+      for (const s of m.ps) {
+        if (s.id === net.id) {
+          player.hp = s.hp;
+          if (s.dead && !player.dead) { player.dead = true; $('dead-msg').style.display = 'block'; }
+          continue;
+        }
+        const r = net.remotes.get(s.id);
+        if (!r) continue;
+        r.hp = s.hp; r.dead = s.dead;
+        r.buf.push({ time: performance.now() / 1000, p: s.p, yaw: s.yaw, pitch: s.pitch, w: s.w });
+        if (r.buf.length > 20) r.buf.shift();
+      }
+      break;
+    case 'hp':
+      if (m.id === net.id) {
+        player.hp = m.hp;
+        hurtT = 0.5;
+      }
+      break;
+    case 'kill': {
+      const icon = m.w === 'knife' ? '🔪' : (m.head ? '🎯' : '▶');
+      addFeed(`${teamSpan(m.killer)} ${icon} ${teamSpan(m.victim)}`);
+      if (m.victim === net.id) { player.dead = true; $('dead-msg').style.display = 'block'; }
+      if (m.killer === net.id) showKill(m.w === 'knife' ? 'KNIFED' : m.head ? 'HEADSHOT' : 'ELIMINATED');
+      const r = net.remotes.get(m.victim);
+      if (r) { r.dead = true; r.avatar.userData.dead = true; r.avatar.userData.deadT = 0; }
+      break;
+    }
+    case 'shot': {
+      const r = net.remotes.get(m.id);
+      if (!r) break;
+      r.avatar.userData.flashT = 0.05;
+      if (Array.isArray(m.o) && Array.isArray(m.e)) addTracer(m.o, m.e);
+      const dist = r.avatar.position.distanceTo(player.position);
+      SFX.play('shots', { vol: 0.5 * Math.max(0.12, 1 - dist / 70), jitter: 0.04 });
+      break;
+    }
+    case 'anim': {
+      const r = net.remotes.get(m.id);
+      if (r) r.avatar.userData.swingT = 0.35;
+      break;
+    }
+    case 'left':
+      net.players = net.players.filter(p => p.id !== m.id);
+      if (net.remotes.has(m.id)) { addFeed(`${teamSpan(m.id)} 나감`); scene.remove(net.remotes.get(m.id).avatar); net.remotes.delete(m.id); syncRemotes(); }
+      break;
+    case 'end': {
+      const win = m.winner === net.myTeam;
+      showBanner(`${win ? '승리!' : '패배'}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}</small>`, 4);
+      setTimeout(() => { if (net.mode === 'online') { net.mode = 'lobby'; clearRemotes(); dummies.length = 0; enterLobby(); renderLobby(); } }, 4000);
+      break;
+    }
+  }
+}
+
+// paper tracer from another player's gun to where their bullet landed
+const tracers = [];
+const tracerMat = new THREE.LineBasicMaterial({ color: 0xfff6c8, transparent: true, opacity: 0.9 });
+function addTracer(o, e) {
+  const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...o), new THREE.Vector3(...e)]);
+  const line = new THREE.Line(geo, tracerMat.clone());
+  scene.add(line);
+  tracers.push({ line, t: 0.08 });
+}
+
+// local hooks used by shooting/knife code
+function reportShot(origin, end) {
+  if (net.mode === 'online') netSend({ t: 'shot', o: origin.toArray().map(v => +v.toFixed(2)), e: end.toArray().map(v => +v.toFixed(2)) });
+}
+// returns true if the hit is handled online (server applies damage) — local HP is not touched
+function reportHit(dummy, dmg, head, w) {
+  if (net.mode !== 'online' || !dummy.userData.remoteId) return false;
+  if (dummy.userData.team !== net.myTeam && net.phase === 'live') {
+    netSend({ t: 'hit', target: dummy.userData.remoteId, dmg, head, w });
+    showHitmarker(head);
+  }
+  return true;
+}
+const playerCanAct = () => net.mode !== 'online' || (net.phase === 'live' || net.phase === 'post') && !player.dead;
+
+function updateNet(dt) {
+  // HUD
+  if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) $('banner').classList.remove('show'); }
+  hurtT = Math.max(0, hurtT - dt);
+  $('hurt').style.opacity = (hurtT * 1.6).toFixed(2);
+  document.getElementById('hp').textContent = Math.max(0, Math.round(player.hp));
+  for (let i = tracers.length - 1; i >= 0; i--) {
+    const tr = tracers[i];
+    tr.t -= dt;
+    tr.line.material.opacity = Math.max(0, tr.t / 0.08) * 0.9;
+    if (tr.t <= 0) { scene.remove(tr.line); tr.line.geometry.dispose(); tracers.splice(i, 1); }
+  }
+  if (net.mode !== 'online') return;
+
+  $('score-blue').textContent = net.score.blue;
+  $('score-red').textContent = net.score.red;
+  const t = Math.max(0, Math.ceil(net.timer));
+  $('round-timer').textContent = net.phase === 'prestart' ? t : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  $('round-label').textContent = net.phase === 'prestart' ? `ROUND ${net.round} 준비` : `ROUND ${net.round}`;
+
+  // send my state at 20 Hz
+  net.sendT -= dt;
+  if (net.sendT <= 0 && !player.dead) {
+    net.sendT = 0.05;
+    netSend({ t: 'state', p: player.position.toArray().map(v => +v.toFixed(3)), yaw: +cam.yaw.toFixed(1), pitch: +cam.pitch.toFixed(1),
+      w: loadout.current, ads: ads.held });
+  }
+
+  // draw others 100 ms in the past, blending between the two snapshots around that time
+  const renderTime = performance.now() / 1000 - INTERP_DELAY;
+  const now = performance.now() / 1000;
+  for (const r of net.remotes.values()) {
+    const d = r.avatar, u = d.userData;
+    const b = r.buf;
+    if (b.length) {
+      let i = b.length - 1;
+      while (i > 0 && b[i - 1].time > renderTime) i--;
+      const s1 = b[i], s0 = b[Math.max(0, i - 1)];
+      const span = s1.time - s0.time;
+      const k = span > 0 ? Math.min(1, Math.max(0, (renderTime - s0.time) / span)) : 1;
+      const px = s0.p[0] + (s1.p[0] - s0.p[0]) * k, py = s0.p[1] + (s1.p[1] - s0.p[1]) * k, pz = s0.p[2] + (s1.p[2] - s0.p[2]) * k;
+      const moved = Math.hypot(px - d.position.x, pz - d.position.z) / Math.max(dt, 1e-3);
+      d.position.set(px, py, pz);
+      let dy = s1.yaw - s0.yaw;
+      dy = ((dy + 540) % 360) - 180;
+      d.rotation.y = (s0.yaw + dy * k) * Math.PI / 180;
+      u.moving = moved > 1;
+      u.pitch = s0.pitch + (s1.pitch - s0.pitch) * k;
+      u.weapon = s1.w;
+    }
+    // name tag only when that player's head is actually in view (tags draw on top, so walls must hide them here)
+    _tagFrom.copy(camera.position);
+    _tagTo.set(d.position.x, d.position.y + 1.7, d.position.z);
+    const tagDist = _tagFrom.distanceTo(_tagTo);
+    tagRay.set(_tagFrom, _tagTo.sub(_tagFrom).normalize());
+    tagRay.far = tagDist;
+    u.tag.visible = !(r.dead || u.dead) && tagRay.intersectObjects(worldMeshes()).length === 0;
+    if (r.dead || u.dead) {
+      u.deadT = (u.deadT || 0) + dt;
+      d.rotation.x = -(Math.min(1, u.deadT / 0.35) ** 2) * Math.PI / 2;
+      u.flash.visible = false;
+      continue;
+    }
+    d.rotation.x = 0;
+    animateDummy(d, now, u.moving);
+    // arms forward holding the gun, tilted with the player's view pitch
+    const aim = -Math.PI / 2 - (u.pitch || 0) * Math.PI / 180;
+    u.swingT = Math.max(0, (u.swingT || 0) - dt);
+    u.armR.rotation.x = aim + (u.swingT > 0 ? Math.sin(u.swingT * 18) * 0.8 : 0);
+    u.armL.rotation.x = aim + 0.15;
+    u.armL.rotation.z = -0.5;
+    u.gun.visible = u.weapon !== 'knife';
+    u.flashT = Math.max(0, u.flashT - dt);
+    u.flash.visible = u.flashT > 0;
+    u.hitT = Math.max(0, (u.hitT || 0) - dt);
+    const squash = u.hitT > 0 ? 1 + u.hitT * 1.5 : 1;
+    d.scale.set(squash, 2 - squash, 1);
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  update(dt);
+  updateNet(dt);
+  renderer.clear();
+  renderer.render(scene, camera);
+  renderer.clearDepth();
+  renderer.render(vmScene, vmCamera);
+}
+
+// ── RESIZE ──
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  vmCamera.aspect = camera.aspect;
+  vmCamera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>
