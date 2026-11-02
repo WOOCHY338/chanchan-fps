@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ChanChan TPS</title>
+<title>찬찬배틀</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" rel="stylesheet">
 <script src="lib/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
@@ -122,6 +124,60 @@ canvas { display: block; width: 100vw; height: 100vh; }
   font-family: inherit; width: 150px;
 }
 #menu-error { color: #ff8a80; min-height: 18px; font-size: 14px; }
+body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-open #minimap { visibility: hidden; }
+/* main screen (Valorant-style): title + nav on the left, the selected page in the middle, events on the right */
+#menu.main { flex-direction: row; align-items: stretch; justify-content: space-between; gap: 28px; padding: 44px 48px;
+  background: linear-gradient(90deg, rgba(12,14,19,0.94) 0%, rgba(12,14,19,0.8) 50%, rgba(12,14,19,0.45) 100%); overflow-y: auto; }
+#menu.main.hidden { display: none; }
+#menu .main-left { flex: 0 0 auto; display: flex; flex-direction: column; gap: 34px; }
+#menu .logo { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 64px; line-height: 1; color: #fff; letter-spacing: 1px;
+  text-shadow: 4px 4px 0 #ff4655; }
+#menu .main-nav { display: flex; flex-direction: column; gap: 6px; }
+#menu .nav-item { background: none; border: none; color: rgba(255,255,255,0.6); text-align: left; cursor: pointer; padding: 4px 0 4px 16px;
+  font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 40px; border-left: 4px solid transparent; transition: color 0.15s, border-color 0.15s; }
+#menu .nav-item:hover { color: #fff; border-left-color: rgba(255,70,85,0.6); }
+#menu .nav-item.on { color: #fff; border-left-color: #ff4655; }
+#menu .main-center { flex: 1 1 auto; max-width: 620px; display: flex; flex-direction: column; padding-top: 96px; }
+#menu .menu-page { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+#menu .menu-page.hidden { display: none; }
+#menu .page-title { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 28px; color: #ff4655; letter-spacing: 1px; }
+#menu .row.left { justify-content: flex-start; }
+#menu .check { opacity: 0.85; cursor: pointer; }
+#menu #room-list { width: 100%; max-width: 100%; }
+.mode-cards { display: flex; gap: 14px; flex-wrap: wrap; }
+.mode-card { width: 230px; min-height: 120px; text-align: left; cursor: pointer; color: #fff; border: 2px solid rgba(255,255,255,0.15);
+  border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-family: inherit; transition: transform 0.12s, border-color 0.12s; }
+.mode-card:hover { transform: translateY(-2px); border-color: #fff; }
+.mode-card.elim { background: linear-gradient(135deg, #2f5fae, #1b2c4d); }
+.mode-card.bomb { background: linear-gradient(135deg, #b8323d, #4a1820); }
+.mode-card b { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 26px; font-weight: 400; }
+.mode-card span { font-size: 13px; opacity: 0.8; }
+.mode-card i { margin-top: auto; font-style: normal; font-weight: 800; font-size: 13px; color: #ffd9dc; }
+.btn.accent { background: #ff4655; color: #fff; }
+.shop-grid { display: flex; gap: 16px; flex-wrap: wrap; }
+.shop-item { width: 250px; background: rgba(255,255,255,0.06); border: 2px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 14px;
+  display: flex; flex-direction: column; gap: 6px; color: #fff; }
+.shop-item.equipped { border-color: #ff4655; }
+.shop-item b { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 24px; font-weight: 400; }
+.shop-item span { font-size: 13px; opacity: 0.75; min-height: 34px; }
+.shop-item .btn { align-self: flex-start; padding: 6px 16px; }
+.shop-item.equipped .btn { background: #ff4655; color: #fff; }
+.shop-art { height: 110px; border-radius: 4px; background-color: #1b1e25; background-repeat: no-repeat; background-position: center; }
+.shop-art.basic { background-image: linear-gradient(160deg, transparent 47%, #c9ced6 47%, #c9ced6 53%, transparent 53%),
+  linear-gradient(160deg, transparent 49%, #20222a 49%, #20222a 51%, transparent 51%); background-size: 70% 60%, 100% 100%; }
+.shop-art.karambit { background-image: radial-gradient(circle at 62% 30%, transparent 26px, #e2b850 27px, #e2b850 33px, transparent 34px),
+  radial-gradient(circle at 38% 72%, transparent 9px, #b9bec7 10px, #b9bec7 13px, transparent 14px); }
+.main-right { flex: 0 0 300px; display: flex; flex-direction: column; gap: 18px; }
+.event-card { flex: 1 1 0; min-height: 200px; max-height: 300px; text-align: left; cursor: pointer; color: #fff; border: 2px solid rgba(255,255,255,0.18);
+  border-radius: 6px; padding: 18px; display: flex; flex-direction: column; gap: 8px; font-family: inherit; transition: transform 0.12s, border-color 0.12s; }
+.event-card:hover { transform: translateY(-2px); border-color: #fff; }
+.event-card.ev1 { background: linear-gradient(160deg, rgba(255,70,85,0.9), rgba(60,16,24,0.92)); }
+.event-card.ev2 { background: linear-gradient(160deg, rgba(226,184,80,0.85), rgba(46,34,12,0.92)); }
+.event-card .ev-tag { align-self: flex-start; font-size: 12px; font-weight: 800; background: rgba(0,0,0,0.35); padding: 2px 8px; border-radius: 3px; }
+.event-card b { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 30px; font-weight: 400; line-height: 1.1; }
+.event-card span { font-size: 13px; opacity: 0.9; }
+.event-card i { margin-top: auto; font-style: normal; font-weight: 800; font-size: 14px; }
+@media (max-width: 1100px) { #menu.main { flex-wrap: wrap; } .main-right { flex: 1 1 100%; flex-direction: row; } .event-card { min-height: 140px; } }
 #lobby-modes .btn { padding: 6px 12px; font-size: 13px; opacity: 0.55; }
 #lobby-modes .btn.on { opacity: 1; outline: 3px solid #fff; outline-offset: 1px; }
 #lobby-modes .btn:disabled { opacity: 0.3; } #lobby-modes .btn.on:disabled { opacity: 0.9; }
@@ -183,7 +239,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
 }
 </style>
 </head>
-<body>
+<body class="menu-open">
 
 <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
 <div id="hitmarker"></div>
@@ -214,36 +270,72 @@ canvas { display: block; width: 100vw; height: 100vh; }
 </div>
 
 <div id="start-screen" class="hidden">
-  <h1>ChanChan</h1>
+  <h1>찬찬배틀</h1>
   <p>클릭해서 계속</p>
 </div>
 
-<div id="menu" class="overlay">
-  <h1>ChanChan FPS</h1>
-  <div class="row"><input id="name-input" class="field" maxlength="12" placeholder="닉네임"></div>
-  <div class="row">
-    <button class="btn" id="btn-practice">연습장</button>
+<div id="menu" class="overlay main">
+  <div class="main-left">
+    <div class="logo">찬찬배틀</div>
+    <nav class="main-nav">
+      <button class="nav-item on" data-page="play">플레이</button>
+      <button class="nav-item" id="btn-practice">연습장</button>
+      <button class="nav-item" data-page="shop">상점</button>
+    </nav>
   </div>
-  <div class="row">
-    <span class="sub" style="width:64px">섬멸전</span>
-    <button class="btn blue" id="btn-create-elim">방 만들기</button>
+
+  <div class="main-center">
+    <section class="menu-page" id="page-play">
+      <div class="page-title">플레이</div>
+      <div class="row left"><input id="name-input" class="field" maxlength="12" placeholder="닉네임"></div>
+      <div class="mode-cards">
+        <button class="mode-card elim" id="btn-create-elim"><b>섬멸전</b><span>상대 팀 전멸 · 5점 선승</span><i>방 만들기</i></button>
+        <button class="mode-card bomb" id="btn-create-bomb"><b>폭탄전</b><span>A/B 설치·해체 · 공수 교대</span><i>방 만들기</i></button>
+      </div>
+      <label class="sub check"><input type="checkbox" id="public-check" checked> 일반방으로 열기 (누구나 목록에서 들어올 수 있어요)</label>
+      <div class="row left">
+        <button class="btn accent" id="btn-quick">빠른 참가</button>
+        <button class="btn ghost" id="btn-refresh">일반방 새로고침</button>
+        <input id="code-input" class="field" maxlength="4" placeholder="방 코드" style="text-transform:uppercase;width:110px">
+        <button class="btn ghost" id="btn-join">코드로 참가</button>
+      </div>
+      <div id="room-list"><div class="empty">일반방 목록을 불러오는 중…</div></div>
+      <div id="menu-error"></div>
+      <div class="sub">최대 5대5 · 5점 먼저 내는 팀 승리 · E 길게: 설치/해체 · Enter/T 채팅 · V/U 보이스</div>
+    </section>
+
+    <section class="menu-page hidden" id="page-shop">
+      <div class="page-title">상점</div>
+      <div class="sub">칼을 골라서 장착하세요 · 3번 키로 꺼내요</div>
+      <div class="shop-grid">
+        <div class="shop-item" data-skin="basic">
+          <div class="shop-art basic"></div>
+          <b>기본칼</b><span>발로란트 제노헌터 스타일 · 손가락으로 돌려서 꺼내기</span>
+          <button class="btn equip">장착</button>
+        </div>
+        <div class="shop-item" data-skin="karambit">
+          <div class="shop-art karambit"></div>
+          <b>카람빗</b><span>챔피언스 2021 스타일 찌르기 · 금색 궤적</span>
+          <button class="btn equip">장착</button>
+        </div>
+      </div>
+    </section>
   </div>
-  <div class="row">
-    <span class="sub" style="width:64px">폭탄전</span>
-    <button class="btn red" id="btn-create-bomb">방 만들기</button>
+
+  <div class="main-right">
+    <button class="event-card ev1" data-goto="play">
+      <span class="ev-tag">이벤트</span>
+      <b>폭탄전 오픈</b>
+      <span>A·B 사이트, 롱·링크·미드·백사이트까지. 최대 5대5로 붙어보세요</span>
+      <i>지금 플레이 ›</i>
+    </button>
+    <button class="event-card ev2" data-goto="shop">
+      <span class="ev-tag">이벤트 2</span>
+      <b>챔피언스 카람빗</b>
+      <span>조준점에 꽂히는 찌르기와 금색 궤적, 상점에서 무료로 장착</span>
+      <i>상점 가기 ›</i>
+    </button>
   </div>
-  <div class="row">
-    <label class="sub" style="opacity:0.85;cursor:pointer"><input type="checkbox" id="public-check" checked> 일반방으로 열기 (누구나 목록에서 들어올 수 있어요)</label>
-  </div>
-  <div class="row">
-    <button class="btn" id="btn-quick">빠른 참가</button>
-    <button class="btn ghost" id="btn-refresh">일반방 새로고침</button>
-    <input id="code-input" class="field" maxlength="4" placeholder="방 코드" style="text-transform:uppercase;width:110px">
-    <button class="btn ghost" id="btn-join">코드로 참가</button>
-  </div>
-  <div id="room-list"><div class="empty">일반방 목록을 불러오는 중…</div></div>
-  <div id="menu-error"></div>
-  <div class="sub">5점 먼저 내는 팀 승리 · 폭탄전은 매 라운드 공격/수비가 바뀌어요 · E 길게: 설치/해체</div>
 </div>
 
 <div id="lobby" class="overlay hidden">
@@ -2512,6 +2604,7 @@ function playerName() {
 }
 function showOnly(el) {
   for (const e of [menuEl, lobbyEl]) e.classList.toggle('hidden', e !== el);
+  document.body.classList.toggle('menu-open', !!el);   // game HUD hidden behind the main screen / lobby
 }
 
 // ── P2P: the room creator's browser IS the server (same rules/messages as server.js); everyone else connects
@@ -2953,6 +3046,28 @@ function startOnlineMatch() {
 }
 
 $('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
+// main screen pages (플레이 / 상점) and event cards
+function showMenuPage(page) {
+  for (const sec of document.querySelectorAll('#menu .menu-page')) sec.classList.toggle('hidden', sec.id !== 'page-' + page);
+  for (const b of document.querySelectorAll('#menu .nav-item[data-page]')) b.classList.toggle('on', b.dataset.page === page);
+  if (page === 'shop') renderShop();
+}
+for (const b of document.querySelectorAll('#menu [data-page]')) b.onclick = () => showMenuPage(b.dataset.page);
+for (const b of document.querySelectorAll('#menu [data-goto]')) b.onclick = () => showMenuPage(b.dataset.goto);
+function renderShop() {
+  for (const item of document.querySelectorAll('.shop-item')) {
+    const on = item.dataset.skin === knifeSkin;
+    item.classList.toggle('equipped', on);
+    item.querySelector('.equip').textContent = on ? '장착됨' : '장착';
+  }
+}
+for (const item of document.querySelectorAll('.shop-item')) {
+  item.querySelector('.equip').onclick = () => {
+    knifeSelect.value = item.dataset.skin;
+    knifeSelect.dispatchEvent(new Event('change'));   // same path as the settings dropdown (saves + applies)
+    renderShop();
+  };
+}
 $('auto-fs').checked = autoFullscreen;
 $('auto-fs').onchange = e => {
   autoFullscreen = e.target.checked;
