@@ -689,7 +689,12 @@ rampMesh.receiveShadow = true;
 scene.add(rampMesh);
 
 // ── MAPS ── boxes: [x, y, z, sx, sy, sz, color]. bound: how far the player may walk from the center.
-const BOMB_SITE = { x: 7, z: 12, hw: 5, hd: 5 };   // 폭탄전 A site (centre + half size)
+// 폭탄전 plant zones (centre + half size); the painted squares on the floor match these
+const BOMB_SITES = [
+  { name: 'A', x: 17.5, z: 10, hw: 7, hd: 5.5 },
+  { name: 'B', x: -17.5, z: 10, hw: 7, hd: 5.5 },
+];
+const WALL = 0xb3aa98, WALL2 = 0xc9b39a, CRATE = 0xd4a574, CRATE2 = 0xc99a66;
 const MAPS = {
   arena: {
     ramp: true, bound: [29, 29],
@@ -701,42 +706,78 @@ const MAPS = {
       [0, 1, -19, 14, 2, 1, 0x8fa3c4],
     ],
   },
-  // small Wingman-style map: attackers spawn south, defenders north-west, one bomb site (A) north-east.
-  // A big block in the middle splits it into a left lane and a right lane.
-  wingman: {
-    ramp: false, bound: [13.5, 21.5],
+  // two-site bomb map (CS / Valorant style), 52 x 48 m. Attackers spawn south, defenders north between the sites.
+  //   T spawn ─ T hall ─┬─ B tunnel (west) ──────────────┐ B site ─ B backsite ┐
+  //                     ├─ mid ─┬─ B link (west) ─────────┘                     ├ CT spawn
+  //                     │       └─ A link (east) ─────────┐ A site ─ A backsite ┘
+  //                     └─ A long (east, doors) ───────────┘
+  bomb: {
+    ramp: false, bound: [25.6, 23.6],
     boxes: [
-      [0, 2, 22.5, 30, 4, 1, 0xa79f8f], [0, 2, -22.5, 30, 4, 1, 0xa79f8f],          // outer walls
-      [14.5, 2, 0, 1, 4, 46, 0xb3aa98], [-14.5, 2, 0, 1, 4, 46, 0xb3aa98],
-      [-2, 2, -2, 6, 4, 14, 0xc9b39a],                                               // middle block
-      [-1, 1.25, 12, 2, 2.5, 6, 0xb8a9c9],                                           // wall west of the site
-      [0, 1, -15, 8, 2, 1, 0x8fa3c4], [-8, 1, 15, 6, 2, 1, 0x8fa3c4],                // spawn cover walls
-      [5, 0.6, 10, 1.2, 1.2, 1.2, 0xd4a574], [9.5, 0.9, 13.5, 1.8, 1.8, 1.8, 0xd4a574], // site crates
-      [6, 0.6, 15.5, 1.2, 1.2, 1.2, 0xc99a66], [11, 1.5, 8.5, 1.2, 3, 1.2, 0xa3c4bc],
-      [-9, 0.75, -6, 3, 1.5, 2, 0xd4c5a0], [-11, 1.25, 4, 2, 2.5, 2, 0xb5c9a8],     // left lane cover
-      [6, 1, -8, 2, 2, 2, 0xd4b8a0], [11, 0.75, -2, 2, 1.5, 3, 0xc9b8a8], [3, 1.25, 2, 1.5, 2.5, 1.5, 0xa8b8d4], // right lane
+      // outer walls
+      [0, 2, 24.5, 54, 4, 1, WALL], [0, 2, -24.5, 54, 4, 1, WALL], [26.5, 2, 0, 1, 4, 50, WALL], [-26.5, 2, 0, 1, 4, 50, WALL],
+      // solid blocks between the lanes
+      [-17, 2, -20.5, 18, 4, 7, WALL2], [17, 2, -20.5, 18, 4, 7, WALL2],       // around T spawn
+      [-11.5, 2, -6, 17, 4, 12, WALL2], [11.5, 2, -6, 17, 4, 12, WALL2],       // tunnel | mid | long
+      [-16, 2, 2, 8, 4, 4, WALL2], [16, 2, 2, 8, 4, 4, WALL2],                 // link | tunnel, link | long
+      [-6, 2, 10, 6, 4, 12, WALL], [6, 2, 10, 6, 4, 12, WALL],                 // mid | sites
+      [-7.5, 2, 18, 3, 4, 4, WALL], [7.5, 2, 18, 3, 4, 4, WALL],               // CT spawn | backsites
+      // A long doors (gap in the middle)
+      [21, 2, -4.5, 2, 4, 1, 0x9c8f78], [25, 2, -4.5, 2, 4, 1, 0x9c8f78],
+      // cover
+      [-12, 0.75, -14.5, 1.5, 1.5, 1.5, CRATE2], [13, 0.75, -15, 1.5, 1.5, 1.5, CRATE2],   // T hall
+      [0, 0.75, -4, 1.5, 1.5, 1.5, CRATE],                                                  // mid box
+      [-24, 0.75, -6, 1.5, 1.5, 1.5, CRATE2], [24, 0.75, 1, 1.5, 1.5, 1.5, CRATE2],        // tunnel, long corner
+      [-7, 0.6, 2, 1.2, 1.2, 1.2, CRATE], [7.5, 0.6, 1.2, 1.2, 1.2, 1.2, CRATE],           // links
+      // A site
+      [14, 0.9, 9, 1.8, 1.8, 1.8, CRATE], [15.6, 0.6, 7.6, 1.2, 1.2, 1.2, CRATE2], [20, 1.25, 13, 2, 2.5, 2, 0xa3c4bc],
+      [11, 0.6, 14, 1.2, 1.2, 1.2, CRATE2], [23, 0.6, 6.5, 1.2, 1.2, 1.2, CRATE],
+      // B site
+      [-14, 0.9, 10, 1.8, 1.8, 1.8, CRATE], [-20, 1.25, 8, 2, 2.5, 2, 0xa8b8d4], [-22, 0.6, 14, 1.2, 1.2, 1.2, CRATE2],
+      [-11.5, 0.6, 6.5, 1.2, 1.2, 1.2, CRATE], [-16.5, 0.6, 13.5, 1.2, 1.2, 1.2, CRATE2],
+      // backsites
+      [18, 0.9, 20.5, 1.8, 1.8, 1.8, CRATE2], [-18, 0.9, 20.5, 1.8, 1.8, 1.8, CRATE2],
+    ],
+    // painted callouts on the floor: [text, x, z]
+    labels: [
+      ['T 스폰', 0, -20.5], ['T 홀', -4, -14.5], ['미드', 0, -9], ['미드', 0, 10],
+      ['A 롱', 23, -9], ['A 롱 문', 23, -2.5], ['A 링크', 8, 3.4], ['A 백사이트', 18, 22.5],
+      ['B 터널', -23, -9], ['B 링크', -8, 3.4], ['B 백사이트', -18, 22.5], ['CT 스폰', 0, 21],
     ],
   },
 };
 let currentMap = 'arena';
 
-// site floor marking: tinted square with a big paper "A"
-const siteMarker = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = 'rgba(230,120,60,0.35)'; g.fillRect(0, 0, 256, 256);
-  g.strokeStyle = 'rgba(160,60,20,0.9)'; g.lineWidth = 10; g.strokeRect(5, 5, 246, 246);
-  g.fillStyle = 'rgba(150,50,20,0.85)'; g.font = 'bold 170px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText('A', 128, 140);
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(BOMB_SITE.hw * 2, BOMB_SITE.hd * 2),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
-  m.rotation.set(-Math.PI / 2, 0, Math.PI);   // the "A" reads upright for attackers coming from the south
-  m.position.set(BOMB_SITE.x, 0.02, BOMB_SITE.z);
+// floor paint: site squares with a big letter, plus callout names. Read upright by attackers coming from the south.
+function floorDecal(canvas, w, h, x, z) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false }));
+  m.rotation.set(-Math.PI / 2, 0, Math.PI);
+  m.position.set(x, 0.02, z);
+  m.raycast = () => {};
   m.visible = false;
   scene.add(m);
   return m;
-})();
+}
+const mapDecals = { bomb: [] };
+for (const site of BOMB_SITES) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(256 * site.hw / site.hd); c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(230,120,60,0.3)'; g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = 'rgba(160,60,20,0.9)'; g.lineWidth = 10; g.strokeRect(5, 5, c.width - 10, c.height - 10);
+  g.fillStyle = 'rgba(150,50,20,0.85)'; g.font = 'bold 170px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(site.name, c.width / 2, 140);
+  mapDecals.bomb.push(floorDecal(c, site.hw * 2, site.hd * 2, site.x, site.z));
+}
+for (const [text, x, z] of MAPS.bomb.labels) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 128;
+  const g = c.getContext('2d');
+  g.font = 'bold 72px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(55,40,25,0.8)'; g.fillText(text, 256, 68);
+  mapDecals.bomb.push(floorDecal(c, 4, 1, x, z));
+}
 
 function loadMap(name) {
   if (!MAPS[name]) return;
@@ -744,7 +785,7 @@ function loadMap(name) {
   obstacles.length = 0;
   for (const b of MAPS[name].boxes) addObstacle(...b);
   rampMesh.visible = MAPS[name].ramp;
-  siteMarker.visible = name === 'wingman';
+  for (const [m, list] of Object.entries(mapDecals)) for (const d of list) d.visible = m === name;
   currentMap = name;
 }
 loadMap('arena');
@@ -2274,10 +2315,11 @@ const SPAWNS = {
 // 폭탄전 (Wingman-style): sides swap every round, first to 5 still wins
 const BOMB = { roundTime: 60, fuse: 35, plantTime: 3, defuseTime: 5, defuseRange: 2.2, pickupRange: 1.4 };
 const BOMB_SPAWNS = {
-  attack: [[-2, -19, 0], [2, -19, 0]],
-  defense: [[-6, 18.5, 180], [-10, 18.5, 180]],
+  attack: [[-2, -21, 0], [2, -21, 0]],
+  defense: [[-2, 21.5, 180], [2, 21.5, 180]],
 };
-const inSite = (x, z) => Math.abs(x - BOMB_SITE.x) <= BOMB_SITE.hw + 0.3 && Math.abs(z - BOMB_SITE.z) <= BOMB_SITE.hd + 0.3;
+// which site (if any) a position is inside
+const inSite = (x, z) => (BOMB_SITES.find(st => Math.abs(x - st.x) <= st.hw + 0.3 && Math.abs(z - st.z) <= st.hd + 0.3) || {}).name || null;
 const makeRoomCode = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
 
 // host-side room: one room per host browser. clients: id -> send(msg)
@@ -2310,7 +2352,7 @@ function createHostRoom(code, mode, type = 'elim') {
       room.bomb = { s: 'carried', c: atk[Math.floor(Math.random() * atk.length)].id, p: null };
     }
     broadcast({ t: 'round', phase: 'prestart', round: room.round, score: room.score, timer: room.timer, spawns,
-      type: room.type, map: isBomb ? 'wingman' : 'arena', attack: room.attack });
+      type: room.type, map: isBomb ? 'bomb' : 'arena', attack: room.attack });
   }
   const defense = () => room.attack === 'blue' ? 'red' : 'blue';
   // the carrier died or left: the bomb falls where they stood
@@ -2363,10 +2405,10 @@ function createHostRoom(code, mode, type = 'elim') {
       if (!ok) { p.actT = 0; continue; }
       p.actT += dt;
       if (p.act === 'plant' && p.actT >= BOMB.plantTime) {
-        room.bomb = { s: 'planted', c: null, p: [x, 0, z] };
+        room.bomb = { s: 'planted', c: null, p: [x, 0, z], site: inSite(x, z) };
         room.timer = BOMB.fuse;
         p.act = null; p.actT = 0;
-        broadcast({ t: 'bomb', ev: 'plant', id: p.id, p: room.bomb.p });
+        broadcast({ t: 'bomb', ev: 'plant', id: p.id, p: room.bomb.p, site: room.bomb.site });
       } else if (p.act === 'defuse' && p.actT >= BOMB.defuseTime) {
         room.bomb.s = 'defused';
         broadcast({ t: 'bomb', ev: 'defuse', id: p.id });
@@ -2745,7 +2787,7 @@ function onNetMessage(m) {
         if (m.map && m.map !== currentMap) loadMap(m.map);   // before spawning: ground height depends on the map
         if (m.spawns && m.spawns[net.id]) spawnLocal(m.spawns[net.id]);
         for (const r of net.remotes.values()) { r.dead = false; r.hp = 100; r.buf.length = 0; r.avatar.userData.dead = false; r.avatar.rotation.x = 0; }
-        const role = net.type !== 'bomb' ? '' : net.myTeam === net.attack ? ' · 공격 — 폭탄을 A에 설치하세요' : ' · 수비 — A 사이트를 지키세요';
+        const role = net.type !== 'bomb' ? '' : net.myTeam === net.attack ? ' · 공격 — 폭탄을 A나 B에 설치하세요' : ' · 수비 — A, B 사이트를 지키세요';
         showBanner(`ROUND ${m.round}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${role}</small>`, 2.5);
       } else if (m.phase === 'live') {
         showBanner('시작!', 0.8);
@@ -2801,8 +2843,8 @@ function onNetMessage(m) {
     }
     case 'bomb':
       if (m.ev === 'plant') {
-        addFeed(`${teamSpan(m.id)} 💣 폭탄 설치`);
-        showBanner('폭탄 설치됨!', 1.5);
+        addFeed(`${teamSpan(m.id)} 💣 ${m.site || ''} 설치`);
+        showBanner(`폭탄 설치됨 — ${m.site || ''} 사이트!`, 1.5);
         SFX.tone(1200, 0.12, 0.2); SFX.tone(1600, 0.15, 0.2, 0.12);
         bombBeepT = 0;
       } else if (m.ev === 'defuse') {
@@ -2926,9 +2968,9 @@ function updateBomb(dt) {
   if (net.act) hint = net.act === 'plant' ? '설치 중…' : '해체 중…';
   else if (can) hint = can === 'plant' ? 'E 길게 눌러 폭탄 설치' : 'E 길게 눌러 폭탄 해체';
   else if (b && net.phase === 'live' && !player.dead) {
-    if (b.s === 'planted') hint = attacker ? '폭탄을 지키세요' : '폭탄을 해체하세요!';
+    if (b.s === 'planted') hint = attacker ? `${b.site} 사이트 폭탄을 지키세요` : `${b.site} 사이트로 가서 폭탄을 해체하세요!`;
     else if (b.s === 'dropped') hint = attacker ? '떨어진 폭탄을 주우세요' : '';
-    else if (attacker && b.c === net.id) hint = 'A 사이트로 가서 설치하세요';
+    else if (attacker && b.c === net.id) hint = 'A나 B 사이트로 가서 설치하세요';
   }
   $('bomb-hint').textContent = hint;
 
