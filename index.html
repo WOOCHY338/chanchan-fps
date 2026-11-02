@@ -1004,7 +1004,8 @@ function updateAds(dt) {
   ads.t = want ? Math.min(1, ads.t + step) : Math.max(0, ads.t - step);
   const e = adsEase();
   const zoom = 1 + (ADS.zoom - 1) * e;
-  camera.fov = 2 * Math.atan(Math.tan(CONFIG.fov * Math.PI / 360) / zoom) * 180 / Math.PI;
+  const punch = 1 + (impact.amp > 0 ? impactCurve() * impact.amp * 0.05 : 0);   // heavy stab: zoom in ~5% for a moment
+  camera.fov = 2 * Math.atan(Math.tan(CONFIG.fov * Math.PI / 360) / (zoom * punch)) * 180 / Math.PI;
   camera.updateProjectionMatrix();
   vmCamera.fov = 58 + (ADS.vmFov - 58) * e;
   vmCamera.updateProjectionMatrix();
@@ -1088,6 +1089,27 @@ function showHitmarker(head) {
   hitmarkerEl.classList.add('show');
   hitmarkerTimer = 0.1;
 }
+// screen impact for heavy stabs: a short camera kick, a little roll, an FOV punch, and a pause in the swing on a hit
+const impact = { t: 1, amp: 0, roll: 0 };
+const IMPACT = { rise: 0.035, fall: 9 };
+// 0 → 1 fast, then eases back to 0
+const impactCurve = () => impact.t < IMPACT.rise ? impact.t / IMPACT.rise : Math.exp(-(impact.t - IMPACT.rise) * IMPACT.fall);
+function knifeImpact(result) {
+  const hit = result === 'hit';
+  impact.t = 0;
+  impact.amp = hit ? 1 : result === 'world' ? 0.55 : 0.35;
+  impact.roll = (Math.random() < 0.5 ? -1 : 1);
+  if (hit) {
+    knifeState.stop = 0.07;   // hit-stop: the swing hangs for a moment on contact
+    document.getElementById('boom-flash').style.opacity = '0.14';
+    SFX.tone(85, 0.22, 0.55, 0, 'sine');
+    SFX.tone(170, 0.09, 0.3, 0, 'triangle');
+    SFX.play('click', { vol: 0.45, rate: 0.55 });
+  } else if (result === 'world') {
+    SFX.play('click', { vol: 0.35, rate: 0.75 });
+  }
+}
+
 function showKill(text) {
   sfx.kill();
   killfeedEl.textContent = text;
@@ -1545,7 +1567,7 @@ const KARAMBIT_ANIMS = {
   // left-center with the blade hanging down, then opens and spins the knife once clockwise on the finger
   // while returning to the right
   heavy: { dur: 1.4, hitAt: 0.17, ease: 'spline', pivotRing: true, range: KNIFE.heavyRange, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
-    streak: { from: [(0.74 - 0.5) / 0.5625 + 0.5, 0.3], to: [0.5, 0.5], d: 0.6, width: 0.03 },
+    streak: { from: [(0.74 - 0.5) / 0.5625 + 0.5, 0.3], to: [0.5, 0.5], d: 0.6, width: 0.045, color: 0xffc24a },
     keys: [{ t: 0, ...KR_IDLE },
       { t: 0.1, at: csAt(0.675, 0.92), r: KR_THRUST },
       // fist just below-right of center so the blade tip lands exactly on the crosshair
@@ -1607,6 +1629,7 @@ function showStreak(s) {
   knifeStreak.position.set((s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2, (s.a[2] + s.b[2]) / 2);
   knifeStreak.rotation.set(0, 0, Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]));
   knifeStreak.scale.set(Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]), s.width, 1);
+  streakMat.color.setHex(s.color || 0xf4f8ff);
   streakT = 0.2;
 }
 
@@ -1654,6 +1677,8 @@ function sampleKnife(anim, t) {
 
 function startKnifeAnim(name, fromCurrent = true) {
   knifeState.anim = knifeAnim(name);
+  knifeState.name = name;
+  knifeState.stop = 0;
   playKnifeSound(name);
   if (net.mode === 'online' && name !== 'inspect') netSend({ t: 'anim', name });
   knifeState.t = 0;
@@ -1677,20 +1702,20 @@ function knifeStrike(anim) {
     const hit = knifeRay.intersectObjects(targets, true).find(h => h.object.isMesh);
     if (hit && (!best || (hit.object.userData.dummy && !best.object.userData.dummy) || hit.distance < best.distance - 0.3)) best = hit;
   }
-  if (!best) return;
+  if (!best) return null;
   const normal = best.face ? best.face.normal.clone().transformDirection(best.object.matrixWorld) : fwd.clone().negate();
   const dummy = best.object.userData.dummy;
   if (!dummy) {
     spawnConfetti(best.point, normal, best.object.material.color.getHex(), 6);
-    return;
+    return 'world';
   }
   const u = dummy.userData;
   const facing = new THREE.Vector3(Math.sin(dummy.rotation.y), 0, Math.cos(dummy.rotation.y));
   const toDummy = dummy.position.clone().sub(player.position).setY(0).normalize();
   const backstab = facing.dot(toDummy) > 0.3;   // dummy faces away from us
   if (reportHit(dummy, backstab ? anim.back : anim.dmg, backstab, 'knife')) {
-    if (u.team !== net.myTeam) { u.hitT = 0.15; spawnConfetti(best.point, normal, best.object.material.color.getHex(), 12); }
-    return;
+    if (u.team !== net.myTeam) { u.hitT = 0.15; spawnConfetti(best.point, normal, best.object.material.color.getHex(), 12); return 'hit'; }
+    return 'world';
   }
   u.hp -= backstab ? anim.back : anim.dmg;
   u.hitT = 0.15;
@@ -1701,6 +1726,7 @@ function knifeStrike(anim) {
     u.deadT = 0;
     showKill(backstab ? 'BACKSTAB' : 'KNIFED');
   }
+  return 'hit';
 }
 
 // ── WEAPON SLOTS (1 = AK, 3 = 기본칼) ──
@@ -1757,10 +1783,12 @@ function updateKnife(dt) {
   let pose = { ...knifeIdle(), lp: LH_REST };
   const a = knifeState.anim;
   if (a) {
-    knifeState.t += dt;
+    if (knifeState.stop > 0) knifeState.stop -= dt;
+    else knifeState.t += dt;
     if (a.hitAt !== undefined && !knifeState.hitDone && knifeState.t >= a.hitAt) {
       knifeState.hitDone = true;
-      knifeStrike(a);
+      const result = knifeStrike(a);
+      if (knifeState.name === 'heavy') knifeImpact(result);
       if (a.streak) showStreak(a.streak);
       if (a.trail) {
         knifeTrail.position.set(...a.trail.pos);
@@ -1833,7 +1861,8 @@ function updateKnife(dt) {
       if (u >= 1) knifeState.airQ = null;
     }
   }
-  knifeRoot.position.set(KNIFE_ROOT[0] + bobX + vmSway.x, KNIFE_ROOT[1] + bobY + vmSway.y - 0.35 * loadout.h, KNIFE_ROOT[2]);
+  const shove = impact.amp > 0 ? impactCurve() * impact.amp * 0.035 : 0;
+  knifeRoot.position.set(KNIFE_ROOT[0] + bobX + vmSway.x, KNIFE_ROOT[1] + bobY + vmSway.y - 0.35 * loadout.h, KNIFE_ROOT[2] - shove);
   knifeRoot.rotation.set(-vmSway.y * 2 - 0.8 * loadout.h, vmSway.x * 2, bobX * 1.5);
   poseKnifeForearm();
   poseKnifeLeft(pose.lp);
@@ -2277,6 +2306,12 @@ function update(dt) {
     Math.cos(yawRad) * Math.cos(pitchRad),
   );
   camera.lookAt(eyePos.clone().add(lookDir));
+  impact.t += dt;
+  if (impact.amp > 0) {
+    const k = impactCurve() * impact.amp;
+    camera.rotateX(-k * 0.022);                  // nod down into the stab
+    camera.rotateZ(k * 0.012 * impact.roll);     // slight roll
+  }
 
   updateShooting(dt);
 
