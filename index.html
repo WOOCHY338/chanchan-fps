@@ -141,8 +141,12 @@ canvas { display: block; width: 100vw; height: 100vh; }
 #scorebar .mid.planted b { color: #ff5a4a; }
 #boom-flash { position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: 0; background: #fff3d6; }
 
+#minimap { position: fixed; top: 14px; left: 14px; width: 190px; height: 190px; z-index: 11; pointer-events: none; display: none;
+  border: 2px solid #1a1410; border-radius: 6px; background: rgba(20,24,20,0.55); }
+#minimap.show { display: block; }
+
 #debug-info {
-  position: fixed; top: 20px; left: 20px; color: rgba(255,255,255,0.5);
+  position: fixed; top: 214px; left: 20px; color: rgba(255,255,255,0.5);
   font-size: 11px; font-family: monospace; z-index: 10; pointer-events: none;
 }
 </style>
@@ -227,6 +231,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
 <div id="hurt"></div>
 <div id="dead-msg">사망<br><small style="font-size:16px">다음 라운드까지 관전 중</small></div>
 
+<canvas id="minimap"></canvas>
 <div id="debug-info"></div>
 
 <script>
@@ -2933,6 +2938,84 @@ function bombAction() {
   if (!attacker && b.s === 'planted' && Math.hypot(player.position.x - b.p[0], player.position.z - b.p[2]) < BOMB.defuseRange) return 'defuse';
   return null;
 }
+// ── MINIMAP ── north (+z) up, mirrored so it matches what you see: facing north, +x is on your left
+const mini = { el: $('minimap'), bg: document.createElement('canvas'), map: null, s: 1, px: 190 };
+function buildMinimap() {
+  const { el, bg } = mini;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  el.width = el.height = bg.width = bg.height = Math.round(mini.px * dpr);
+  const [bx, bz] = MAPS[currentMap].bound;
+  mini.s = (mini.px - 12) / (2 * Math.max(bx, bz) + 2) * dpr;
+  mini.map = currentMap;
+  const g = bg.getContext('2d'), s = mini.s, c = bg.width / 2;
+  const X = x => c - x * s, Z = z => c - z * s;
+  g.clearRect(0, 0, bg.width, bg.height);
+  g.fillStyle = 'rgba(150,175,140,0.55)';                       // walkable floor
+  g.fillRect(X(bx + 0.5), Z(bz + 0.5), (2 * bx + 1) * s, (2 * bz + 1) * s);
+  if (currentMap === 'bomb') {
+    for (const st of BOMB_SITES) {
+      g.fillStyle = 'rgba(230,120,60,0.45)';
+      g.fillRect(X(st.x + st.hw), Z(st.z + st.hd), st.hw * 2 * s, st.hd * 2 * s);
+      g.fillStyle = 'rgba(255,235,210,0.95)'; g.font = `bold ${Math.round(16 * dpr)}px sans-serif`;
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(st.name, X(st.x), Z(st.z));
+    }
+  }
+  for (const [x, , z, sx, sy, sz] of MAPS[currentMap].boxes) {
+    g.fillStyle = sy >= 3 ? 'rgba(45,40,34,0.95)' : 'rgba(120,95,65,0.9)';   // walls dark, crates brown
+    g.fillRect(X(x + sx / 2), Z(z + sz / 2), sx * s, sz * s);
+  }
+}
+const TEAM_DOT = { blue: '#6fa2ff', red: '#ff7b70' };
+function drawMinimap() {
+  const show = net.mode === 'online' || net.mode === 'practice';
+  mini.el.classList.toggle('show', show);
+  if (!show) return;
+  if (mini.map !== currentMap) buildMinimap();
+  const g = mini.el.getContext('2d'), s = mini.s, c = mini.el.width / 2, k = mini.el.width / mini.px;
+  const X = x => c - x * s, Z = z => c - z * s;
+  g.clearRect(0, 0, mini.el.width, mini.el.height);
+  g.drawImage(mini.bg, 0, 0);
+  const dot = (x, z, color, r = 4) => {
+    g.beginPath(); g.arc(X(x), Z(z), r * k, 0, Math.PI * 2);
+    g.fillStyle = color; g.fill(); g.lineWidth = 1.5 * k; g.strokeStyle = '#111'; g.stroke();
+  };
+  const cross = (x, z, color) => {
+    g.strokeStyle = color; g.lineWidth = 2 * k; g.beginPath();
+    g.moveTo(X(x) - 3 * k, Z(z) - 3 * k); g.lineTo(X(x) + 3 * k, Z(z) + 3 * k);
+    g.moveTo(X(x) + 3 * k, Z(z) - 3 * k); g.lineTo(X(x) - 3 * k, Z(z) + 3 * k); g.stroke();
+  };
+  const b = net.mode === 'online' && net.type === 'bomb' ? net.bomb : null;
+  const attacker = net.myTeam === net.attack;
+  const bombIcon = (x, z, color) => {
+    g.fillStyle = color; g.strokeStyle = '#111'; g.lineWidth = 1.5 * k;
+    g.fillRect(X(x) - 4 * k, Z(z) - 4 * k, 8 * k, 8 * k); g.strokeRect(X(x) - 4 * k, Z(z) - 4 * k, 8 * k, 8 * k);
+  };
+  // others: teammates always, enemies only while you can see them
+  if (net.mode === 'online') {
+    for (const [id, r] of net.remotes) {
+      const a = r.avatar, mate = r.team === net.myTeam;
+      if (r.dead || a.userData.dead) { if (mate) cross(a.position.x, a.position.z, TEAM_DOT[r.team]); continue; }
+      if (!mate && !a.userData.tag.visible) continue;
+      dot(a.position.x, a.position.z, TEAM_DOT[r.team]);
+      if (b && b.s === 'carried' && b.c === id && mate) bombIcon(a.position.x, a.position.z - 0.1, '#ffb13b');
+    }
+  }
+  if (b && (b.s === 'planted' || (b.s === 'dropped' && attacker))) {
+    bombIcon(b.p[0], b.p[2], b.s === 'planted' && Math.sin(performance.now() / 150) > 0 ? '#ff3b2f' : '#ffb13b');
+  }
+  // me: an arrow pointing where I look
+  const yaw = cam.yaw * Math.PI / 180, fx = -Math.sin(yaw), fz = -Math.cos(yaw);   // screen direction of "forward"
+  const px = X(player.position.x), pz = Z(player.position.z), L = 8 * k;
+  g.beginPath();
+  g.moveTo(px + fx * L, pz + fz * L);
+  g.lineTo(px - fx * L * 0.6 - fz * L * 0.55, pz - fz * L * 0.6 + fx * L * 0.55);
+  g.lineTo(px - fx * L * 0.6 + fz * L * 0.55, pz - fz * L * 0.6 - fx * L * 0.55);
+  g.closePath();
+  g.fillStyle = player.dead ? '#888' : '#fff'; g.fill(); g.lineWidth = 1.5 * k; g.strokeStyle = '#111'; g.stroke();
+  if (b && b.s === 'carried' && b.c === net.id) bombIcon(player.position.x, player.position.z - 2.2, '#ffb13b');
+}
+
 function updateBomb(dt) {
   // fireball
   if (boomT > 0) {
@@ -3091,6 +3174,7 @@ function animate() {
   update(dt);
   updateNet(dt);
   updateBomb(dt);
+  drawMinimap();
   renderer.clear();
   renderer.render(scene, camera);
   renderer.clearDepth();
