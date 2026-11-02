@@ -167,6 +167,16 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   linear-gradient(160deg, transparent 49%, #20222a 49%, #20222a 51%, transparent 51%); background-size: 70% 60%, 100% 100%; }
 .shop-art.karambit { background-image: radial-gradient(circle at 62% 30%, transparent 26px, #e2b850 27px, #e2b850 33px, transparent 34px),
   radial-gradient(circle at 38% 72%, transparent 9px, #b9bec7 10px, #b9bec7 13px, transparent 14px); }
+.inv-label { font-weight: 800; font-size: 15px; color: #fff; margin-top: 4px; }
+.inv-label small { font-weight: 600; opacity: 0.55; margin-left: 6px; }
+#page-inv .shop-item { width: 190px; }
+#page-inv .shop-art { height: 80px; }
+.shop-art.ak { background-image: linear-gradient(170deg, transparent 44%, #3c3936 44%, #3c3936 52%, transparent 52%),
+  linear-gradient(115deg, transparent 58%, #c8682c 58%, #c8682c 66%, transparent 66%); background-size: 80% 70%, 60% 60%; background-position: center, 70% 80%; }
+.shop-art.dbl { background-image: linear-gradient(172deg, transparent 42%, #45413d 42%, #45413d 47%, transparent 47%, transparent 49%, #45413d 49%, #45413d 54%, transparent 54%),
+  linear-gradient(160deg, transparent 55%, #c8682c 55%, #c8682c 64%, transparent 64%); background-size: 85% 70%, 50% 60%; background-position: center, 85% 85%; }
+.shop-art.awp { background-image: radial-gradient(ellipse 22% 9% at 45% 38%, #2e2c2a 98%, transparent 100%),
+  linear-gradient(176deg, transparent 50%, #5d6e45 50%, #5d6e45 60%, transparent 60%); background-size: 100% 100%, 95% 80%; }
 .main-right { flex: 0 0 300px; display: flex; flex-direction: column; gap: 18px; }
 .event-card { flex: 1 1 0; min-height: 200px; max-height: 300px; text-align: left; cursor: pointer; color: #fff; border: 2px solid rgba(255,255,255,0.18);
   border-radius: 6px; padding: 18px; display: flex; flex-direction: column; gap: 8px; font-family: inherit; transition: transform 0.12s, border-color 0.12s; }
@@ -298,6 +308,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <button class="nav-item on" data-page="play">플레이</button>
       <button class="nav-item" id="btn-practice">연습장</button>
       <button class="nav-item" data-page="shop">상점</button>
+      <button class="nav-item" data-page="inv">인벤토리</button>
     </nav>
   </div>
 
@@ -321,18 +332,33 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <div class="sub">최대 5대5 · 5점 먼저 내는 팀 승리 · E 길게: 설치/해체 · Enter/T 채팅 · V/U 보이스</div>
     </section>
 
+    <section class="menu-page hidden" id="page-inv">
+      <div class="page-title">인벤토리</div>
+      <div class="inv-label">주무기 <small>게임 중엔 B로도 바꿀 수 있어요</small></div>
+      <div class="shop-grid">
+        <div class="shop-item inv-item" data-kind="gun" data-id="rifle"><div class="shop-art ak"></div><b>A-K</b><button class="btn equip">장착</button></div>
+        <div class="shop-item inv-item" data-kind="gun" data-id="shotgun"><div class="shop-art dbl"></div><b>더블배럴</b><button class="btn equip">장착</button></div>
+        <div class="shop-item inv-item" data-kind="gun" data-id="sniper"><div class="shop-art awp"></div><b>저격총</b><button class="btn equip">장착</button></div>
+      </div>
+      <div class="inv-label">칼</div>
+      <div class="shop-grid">
+        <div class="shop-item inv-item" data-kind="knife" data-id="basic"><div class="shop-art basic"></div><b>기본칼</b><button class="btn equip">장착</button></div>
+        <div class="shop-item inv-item" data-kind="knife" data-id="karambit"><div class="shop-art karambit"></div><b>카람빗</b><button class="btn equip">장착</button></div>
+      </div>
+    </section>
+
     <section class="menu-page hidden" id="page-shop">
       <div class="page-title">상점</div>
       <div class="shop-grid">
         <div class="shop-item" data-skin="basic">
           <div class="shop-art basic"></div>
           <b>기본칼</b>
-          <button class="btn equip">장착</button>
+          <button class="btn equip">보유 중</button>
         </div>
         <div class="shop-item" data-skin="karambit">
           <div class="shop-art karambit"></div>
           <b>카람빗</b>
-          <button class="btn equip">장착</button>
+          <button class="btn equip">보유 중</button>
         </div>
       </div>
     </section>
@@ -3605,21 +3631,29 @@ function showMenuPage(page) {
   for (const sec of document.querySelectorAll('#menu .menu-page')) sec.classList.toggle('hidden', sec.id !== 'page-' + page);
   for (const b of document.querySelectorAll('#menu .nav-item[data-page]')) b.classList.toggle('on', b.dataset.page === page);
   if (page === 'shop') renderShop();
+  if (page === 'inv') renderInventory();
 }
 for (const b of document.querySelectorAll('#menu [data-page]')) b.onclick = () => showMenuPage(b.dataset.page);
 for (const b of document.querySelectorAll('#menu [data-goto]')) b.onclick = () => showMenuPage(b.dataset.goto);
 function renderShop() {
-  for (const item of document.querySelectorAll('.shop-item')) {
-    const on = item.dataset.skin === knifeSkin;
+  for (const item of document.querySelectorAll('#page-shop .shop-item')) item.classList.toggle('equipped', item.dataset.skin === knifeSkin);
+}
+for (const item of document.querySelectorAll('#page-shop .shop-item')) item.querySelector('.equip').onclick = () => showMenuPage('inv');
+function renderInventory() {
+  for (const item of document.querySelectorAll('.inv-item')) {
+    const on = item.dataset.kind === 'gun' ? item.dataset.id === primaryGun : item.dataset.id === knifeSkin;
     item.classList.toggle('equipped', on);
     item.querySelector('.equip').textContent = on ? '장착됨' : '장착';
   }
 }
-for (const item of document.querySelectorAll('.shop-item')) {
+for (const item of document.querySelectorAll('.inv-item')) {
   item.querySelector('.equip').onclick = () => {
-    knifeSelect.value = item.dataset.skin;
-    knifeSelect.dispatchEvent(new Event('change'));   // same path as the settings dropdown (saves + applies)
-    renderShop();
+    if (item.dataset.kind === 'gun') choosePrimary(item.dataset.id);
+    else {
+      knifeSelect.value = item.dataset.id;
+      knifeSelect.dispatchEvent(new Event('change'));   // same path as the settings dropdown (saves + applies)
+    }
+    renderInventory();
   };
 }
 $('auto-fs').checked = autoFullscreen;
