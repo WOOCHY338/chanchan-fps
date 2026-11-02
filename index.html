@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" rel="stylesheet">
 <script src="lib/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { overflow: hidden; background: #222; font-family: 'Segoe UI', sans-serif; }
@@ -124,6 +125,21 @@ canvas { display: block; width: 100vw; height: 100vh; }
   font-family: inherit; width: 150px;
 }
 #menu-error { color: #ff8a80; min-height: 18px; font-size: 14px; }
+#account { z-index: 140; }
+#account .logo { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 56px; color: #fff; text-shadow: 4px 4px 0 #ff4655; }
+#account .field { width: 240px; }
+#acct-msg { color: #ffb3a8; min-height: 18px; font-size: 14px; }
+#ranked-box { width: 100%; background: rgba(255,255,255,0.05); border: 2px solid rgba(255,70,85,0.5); border-radius: 6px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px; }
+#ranked-box.off { opacity: 0.6; }
+#ranked-box .rk-head b { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 22px; font-weight: 400; color: #ff4655; margin-right: 8px; }
+#rk-me { font-size: 15px; font-weight: 700; color: #fff; }
+.rk-badge { display: inline-block; padding: 1px 8px; border-radius: 4px; color: #14161b; font-weight: 800; font-size: 13px; }
+.rk-bar { height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; }
+.rk-bar i { display: block; height: 100%; width: 0; background: #ff4655; }
+#rk-board { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; font-size: 13px; color: #fff; }
+#rk-board div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#rk-board b { display: inline-block; width: 18px; opacity: 0.6; }
 body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-open #minimap { visibility: hidden; }
 /* main screen (Valorant-style): title + nav on the left, the selected page in the middle, events on the right */
 #menu.main { flex-direction: row; align-items: stretch; justify-content: space-between; gap: 28px; padding: 44px 48px;
@@ -301,6 +317,19 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   <p>클릭해서 계속</p>
 </div>
 
+<div id="account" class="overlay hidden">
+  <div class="logo">찬찬배틀</div>
+  <div class="sub">계정으로 들어가면 경쟁전 티어가 저장돼요</div>
+  <input id="acct-nick" class="field" maxlength="12" placeholder="닉네임" autocomplete="username">
+  <input id="acct-pw" class="field" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password">
+  <div class="row">
+    <button class="btn accent" id="acct-login">로그인</button>
+    <button class="btn" id="acct-signup">계정 만들기</button>
+  </div>
+  <button class="btn ghost" id="acct-guest">게스트로 하기 (경쟁전 제외)</button>
+  <div id="acct-msg"></div>
+</div>
+
 <div id="menu" class="overlay main">
   <div class="main-left">
     <div class="logo">찬찬배틀</div>
@@ -315,6 +344,17 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   <div class="main-center">
     <section class="menu-page" id="page-play">
       <div class="page-title">플레이</div>
+      <div id="ranked-box">
+        <div class="rk-head"><b>경쟁전</b><span class="sub">폭탄전 · 내 티어 위아래 한 단계까지 매칭 · 승리 약 +30점, 100점마다 승급</span></div>
+        <div id="rk-me"></div>
+        <div class="rk-bar"><i id="rk-bar"></i></div>
+        <div class="row left">
+          <button class="btn accent" id="btn-ranked">경쟁전 매칭</button>
+          <button class="btn ghost" id="rk-login">로그인 / 계정 만들기</button>
+          <button class="btn ghost" id="rk-logout">로그아웃</button>
+        </div>
+        <div id="rk-board"></div>
+      </div>
       <div class="row left"><input id="name-input" class="field" maxlength="12" placeholder="닉네임"></div>
       <div class="mode-cards">
         <button class="mode-card elim" id="btn-create-elim"><b>섬멸전</b><i>방 만들기</i></button>
@@ -448,7 +488,7 @@ const SFX = (() => {
   const buffers = {};
   let volume = 0.7;
   const FILES = {
-    akshot: 'ak_shot.mp3', shotgun: 'shotgun_shot.mp3', sniper: 'sniper_bang.mp3', reload: 'ak_reload.wav',
+    ak: 'ak47_near.wav', shotgun: 'shotgun_shot.mp3', sniper: 'sniper_bang.mp3', reload: 'ak_reload.wav',
     sgOpen: 'sg_open.mp3', sgShell1: 'sg_shell1.mp3', sgShell2: 'sg_shell2.mp3', sgClose: 'sg_close.wav',
     boltLift: 'bolt_lift.wav', boltBack: 'bolt_back.wav', boltFwd: 'bolt_fwd.wav', boltLock: 'bolt_lock.wav',
     magIn: 'mag_in.wav', magOut: 'mag_out.wav', rack: 'ak_rack.wav', click: 'metalClick.ogg',
@@ -457,6 +497,28 @@ const SFX = (() => {
     cloth1: 'cloth1.ogg', cloth2: 'cloth2.ogg',
     ...Object.fromEntries([...Array(10)].map((_, i) => ['step' + i, `footstep0${i}.ogg`])),
   };
+  // single AK-47 shots (near, in front of the shooter) cut out of the Free Firearm Sound Library take
+  const SHOT_ONSETS = [0.61, 3.255, 6.02, 9.155];
+
+  function sliceShot(src, onset) {
+    const sr = src.sampleRate, len = Math.floor(sr * 0.9), fade = Math.floor(sr * 0.4);
+    const start = Math.max(0, Math.floor((onset - 0.01) * sr));
+    const out = ac.createBuffer(src.numberOfChannels, len, sr);
+    let peak = 0;
+    for (let c = 0; c < src.numberOfChannels; c++) {
+      const s = src.getChannelData(c), d = out.getChannelData(c);
+      for (let i = 0; i < len; i++) { d[i] = s[start + i] || 0; peak = Math.max(peak, Math.abs(d[i])); }
+    }
+    for (let c = 0; c < out.numberOfChannels; c++) {
+      const d = out.getChannelData(c);
+      for (let i = 0; i < len; i++) {
+        const tail = i > len - fade ? (len - i) / fade : 1;
+        d[i] = d[i] / peak * 0.95 * tail;
+      }
+    }
+    return out;
+  }
+
   async function load() {
     await Promise.all(Object.entries(FILES).map(async ([k, f]) => {
       try {
@@ -464,6 +526,7 @@ const SFX = (() => {
         buffers[k] = await ac.decodeAudioData(data);
       } catch (e) { console.warn('sound failed to load', f, e); }
     }));
+    if (buffers.ak) buffers.shots = SHOT_ONSETS.map(t => sliceShot(buffers.ak, t));
   }
 
   // created on the first click (browsers block audio until the user interacts)
@@ -534,8 +597,7 @@ const SFX = (() => {
 })();
 
 const sfx = {
-  // supplied recordings start ~0.05 s in: skip that so the bang lands on the click
-  shot: () => SFX.play('akshot', { vol: 0.4, jitter: 0.03, offset: 0.04 }),
+  shot: () => SFX.play('shots', { vol: 0.5, jitter: 0.03 }),
   dryFire: () => SFX.play('click', { vol: 0.6, rate: 1.4 }),
   hit: head => head ? (SFX.tone(1900, 0.06, 0.12), SFX.tone(2600, 0.08, 0.1, 0.035)) : SFX.tone(1500, 0.05, 0.1),
   kill: () => { SFX.tone(880, 0.09, 0.12, 0, 'triangle'); SFX.tone(1320, 0.16, 0.12, 0.08, 'triangle'); },
@@ -3582,6 +3644,7 @@ function resetBombMode() {
   if (currentMap !== 'arena') loadMap('arena');
 }
 function leaveOnline() {
+  unlistRanked();
   closeTransport();
   clearRemotes();
   resetBombMode();
@@ -3755,9 +3818,189 @@ $('btn-to-menu').onclick = () => {
   leaveOnline();
 };
 
+
+// ── 경쟁전 + 계정 (Supabase) ── accounts are nickname + password, rank lives in the `profiles` table and only
+// the server-side report_result() changes it (see supabase.sql). Fill these two in from the Supabase project
+// (Project Settings → API): the URL and the anon/public key are meant to be public.
+const SUPABASE_URL = '';
+const SUPABASE_KEY = '';
+const sb = SUPABASE_URL && SUPABASE_KEY && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+// 스톤 1 → 챌린저 2 is division 0 → 15; 챔피언 = the top 5 players at 챌린저 2
+const TIERS = ['스톤', '브론즈', '실버', '골드', '플래티넘', '다이아', '마스터', '챌린저'];
+const TIER_COLORS = ['#8d8a83', '#b0703f', '#b8c2cc', '#e2b850', '#4fc3b3', '#6fa8ff', '#b56cff', '#ff6b6b'];
+const TOP_DIVISION = 15;
+const divName = d => TIERS[Math.floor(d / 2)] + ' ' + (d % 2 + 1);
+const account = { user: null, profile: null, champions: [], listing: null, beat: null };
+const isChampion = p => p && p.division === TOP_DIVISION && account.champions.includes(p.nickname);
+const rankLabel = p => isChampion(p) ? `챔피언 #${account.champions.indexOf(p.nickname) + 1}` : divName(p.division);
+const rankColor = p => isChampion(p) ? '#ffd76a' : TIER_COLORS[Math.floor(p.division / 2)];
+
+// Supabase Auth wants an email: the nickname is base32-encoded into a fake address (no mail is ever sent;
+// "Confirm email" must be off in the project). 12 Korean chars → 36 bytes → 58 chars, under the 64 limit.
+function nickEmail(nick) {
+  const bytes = new TextEncoder().encode(nick.trim());
+  const A = 'abcdefghijklmnopqrstuvwxyz234567';
+  let out = '', bits = 0, val = 0;
+  for (const b of bytes) {
+    val = (val << 8) | b; bits += 8;
+    while (bits >= 5) { out += A[(val >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += A[(val << (5 - bits)) & 31];
+  return 'u' + out + '@chanchan.app';
+}
+
+const acctEl = $('account');
+function acctMsg(t) { $('acct-msg').textContent = t; }
+async function loadProfile() {
+  if (!sb || !account.user) return;
+  const { data } = await sb.from('profiles').select('*').eq('id', account.user.id).single();
+  account.profile = data || null;
+  if (data) { $('name-input').value = data.nickname; $('name-input').readOnly = true; }
+  await loadLeaderboard();
+}
+async function loadLeaderboard() {
+  if (!sb) return;
+  const { data } = await sb.from('profiles').select('nickname,division,points,wins,losses')
+    .order('division', { ascending: false }).order('points', { ascending: false }).limit(10);
+  const top = data || [];
+  account.champions = top.filter(p => p.division === TOP_DIVISION).slice(0, 5).map(p => p.nickname);
+  renderRanked(top);
+}
+function renderRanked(top = []) {
+  const box = $('ranked-box');
+  box.classList.toggle('off', !sb);
+  if (!sb) { $('rk-me').textContent = '경쟁전 서버가 아직 연결되지 않았어요'; return; }
+  const p = account.profile;
+  $('rk-login').style.display = p ? 'none' : '';
+  $('rk-logout').style.display = p ? '' : 'none';
+  $('btn-ranked').disabled = !p;
+  if (p) {
+    $('rk-me').innerHTML = '';
+    const badge = document.createElement('span');
+    badge.className = 'rk-badge';
+    badge.style.background = rankColor(p);
+    badge.textContent = rankLabel(p);
+    const info = document.createElement('span');
+    info.textContent = ` ${p.nickname} · ${p.division === TOP_DIVISION ? p.points : Math.min(99, p.points)}점 · ${p.wins}승 ${p.losses}패`;
+    $('rk-me').append(badge, info);
+    $('rk-bar').style.width = (p.division === TOP_DIVISION ? 100 : p.points) + '%';
+  } else {
+    $('rk-me').textContent = '로그인하면 경쟁전을 할 수 있어요';
+    $('rk-bar').style.width = '0';
+  }
+  const list = $('rk-board');
+  list.innerHTML = '';
+  top.forEach((q, i) => {
+    const row = document.createElement('div');
+    const b = document.createElement('b');
+    b.textContent = i + 1;
+    const t = document.createElement('span');
+    t.className = 'rk-badge';
+    t.style.background = rankColor(q);
+    t.textContent = rankLabel(q);
+    const n = document.createElement('span');
+    n.textContent = ` ${q.nickname} · ${q.points}점`;
+    row.append(b, t, n);
+    list.appendChild(row);
+  });
+}
+
+async function acctSubmit(signup) {
+  const nick = $('acct-nick').value.trim(), pw = $('acct-pw').value;
+  if (!nick || nick.length > 12) return acctMsg('닉네임은 1~12자로 해 주세요');
+  if (pw.length < 6) return acctMsg('비밀번호는 6자 이상이에요');
+  acctMsg(signup ? '계정 만드는 중…' : '로그인 중…');
+  const email = nickEmail(nick);
+  const res = signup
+    ? await sb.auth.signUp({ email, password: pw, options: { data: { nickname: nick } } })
+    : await sb.auth.signInWithPassword({ email, password: pw });
+  if (res.error) {
+    const m = res.error.message || '';
+    return acctMsg(/registered|exists/i.test(m) ? '이미 있는 닉네임이에요' : /invalid/i.test(m) ? '닉네임 또는 비밀번호가 틀려요' : '실패했어요 (' + m + ')');
+  }
+  if (!res.data.session) return acctMsg('가입은 됐지만 로그인이 안 됐어요 (Supabase에서 Confirm email을 꺼 주세요)');
+  account.user = res.data.user;
+  $('acct-pw').value = '';
+  acctEl.classList.add('hidden');
+  await loadProfile();
+}
+$('acct-login').onclick = () => acctSubmit(false);
+$('acct-signup').onclick = () => acctSubmit(true);
+$('acct-guest').onclick = () => { acctEl.classList.add('hidden'); renderRanked(); };
+$('acct-pw').addEventListener('keydown', e => { if (e.key === 'Enter') acctSubmit(false); });
+$('rk-login').onclick = () => { acctMsg(''); acctEl.classList.remove('hidden'); };
+$('rk-logout').onclick = async () => {
+  await sb.auth.signOut();
+  account.user = account.profile = null;
+  $('name-input').readOnly = false;
+  renderRanked();
+  acctEl.classList.remove('hidden');
+};
+// on load: keep the saved session, otherwise ask to log in / sign up / play as guest
+(async () => {
+  if (!sb) { acctEl.classList.add('hidden'); renderRanked(); return; }
+  const { data } = await sb.auth.getSession();
+  if (data.session) { account.user = data.session.user; acctEl.classList.add('hidden'); await loadProfile(); }
+  else { acctEl.classList.remove('hidden'); await loadLeaderboard(); }
+})();
+
+// ── matchmaking: join an open ranked room whose host is within one division of you, else open one ──
+async function rankedMatch() {
+  if (!sb || !account.profile) return;
+  SFX.unlock(); voiceCtx(); closeTransport();
+  $('menu-error').textContent = '비슷한 티어 방 찾는 중…';
+  const d = account.profile.division;
+  const { data, error } = await sb.from('ranked_rooms').select('*').eq('status', 'open')
+    .gte('host_division', d - 1).lte('host_division', d + 1)
+    .gte('updated_at', new Date(Date.now() - 45000).toISOString())
+    .order('players', { ascending: false }).limit(20);
+  if (error) { $('menu-error').textContent = '매칭 서버 오류 (' + error.message + ')'; return; }
+  const room = (data || []).find(r => r.players < r.max_players && r.host_id !== account.user.id);
+  net.ranked = true;
+  if (room) { $('menu-error').textContent = ''; joinRoom(room.code); return; }
+  net.quickNote = '같은 티어대 상대를 기다리는 중… (위아래 한 단계까지 매칭)';
+  hostRoom(ROOM_MODE, 'bomb', 0, false);
+  // list the room once it's open, then keep it fresh so stale rooms drop off the board
+  for (let i = 0; i < 40 && !(net.hostRoom && net.room); i++) await new Promise(r => setTimeout(r, 250));
+  if (!net.hostRoom || !net.room) return;
+  account.listing = net.room;
+  await sb.from('ranked_rooms').upsert({ code: net.room, host_id: account.user.id, host_division: d, players: 1, status: 'open', updated_at: new Date().toISOString() });
+  account.beat = setInterval(() => {
+    if (!account.listing || account.listing !== net.room) return;
+    sb.from('ranked_rooms').update({ players: (net.players || []).length, status: net.mode === 'lobby' ? 'open' : 'playing',
+      updated_at: new Date().toISOString() }).eq('code', account.listing).then(() => {});
+  }, 15000);
+}
+// leaving: take our room off the board
+function unlistRanked() {
+  if (account.beat) { clearInterval(account.beat); account.beat = null; }
+  if (account.listing && sb) sb.from('ranked_rooms').delete().eq('code', account.listing).then(() => {});
+  account.listing = null;
+  net.ranked = false;
+}
+window.addEventListener('pagehide', unlistRanked);
+$('btn-ranked').onclick = rankedMatch;
+
+// match over: the server adds or takes the points (one result per 60 s)
+async function reportRanked(win) {
+  if (!sb || !account.profile) return;
+  const before = account.profile.division * 100 + account.profile.points;
+  const { data, error } = await sb.rpc('report_result', { win });
+  if (error || !data) return;
+  const after = data.division * 100 + data.points;
+  const promoted = data.division > account.profile.division, demoted = data.division < account.profile.division;
+  account.profile = data;
+  const diff = after - before;
+  addChat({ id: 0, name: '경쟁전', team: '', text: `${diff >= 0 ? '+' : ''}${diff}점 → ${divName(data.division)} ${data.points}점` +
+    (promoted ? ' · 승급!' : demoted ? ' · 강등' : '') });
+  loadLeaderboard();
+}
+
 function renderLobby() {
   $('lobby-code').textContent = net.room;
-  $('lobby-mode').textContent = (net.roomType === 'bomb' ? '폭탄전' : '섬멸전') + ` · ${net.players.length}/10명`
+  $('lobby-modes').style.display = net.ranked ? 'none' : '';
+  $('lobby-mode').textContent = (net.ranked ? '경쟁전 · ' : '') + (net.roomType === 'bomb' ? '폭탄전' : '섬멸전') + ` · ${net.players.length}/10명`
     + (/^PB\d\d$/.test(net.room) ? ' · 일반' : '');
   for (const team of ['blue', 'red']) {
     $('lobby-' + team).innerHTML = '';
@@ -4070,8 +4313,8 @@ function onNetMessage(m) {
       r.avatar.userData.flashT = 0.05;
       if (Array.isArray(m.o) && Array.isArray(m.e)) addTracer(m.o, m.e);
       const dist = r.avatar.position.distanceTo(player.position);
-      const w = r.avatar.userData.weapon, sound = { sniper: 'sniper', shotgun: 'shotgun' }[w] || 'akshot';
-      SFX.play(sound, { vol: 0.42 * Math.max(0.12, 1 - dist / (w === 'sniper' ? 120 : 70)), jitter: 0.04, offset: w === 'sniper' ? 0 : 0.04 });
+      const w = r.avatar.userData.weapon, sound = { sniper: 'sniper', shotgun: 'shotgun' }[w] || 'shots';
+      SFX.play(sound, { vol: 0.42 * Math.max(0.12, 1 - dist / (w === 'sniper' ? 120 : 70)), jitter: 0.04, offset: w === 'shotgun' ? 0.045 : 0 });
       break;
     }
     case 'anim': {
@@ -4108,6 +4351,7 @@ function onNetMessage(m) {
       break;
     case 'end': {
       const win = m.winner === net.myTeam;
+      if (net.ranked) reportRanked(win);
       showBanner(`${win ? '승리!' : '패배'}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}</small>`, 4);
       setTimeout(() => { if (net.mode === 'online') { net.mode = 'lobby'; clearRemotes(); resetBombMode(); dummies.length = 0; enterLobby(); renderLobby(); } }, 4000);
       break;

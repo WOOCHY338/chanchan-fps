@@ -18,7 +18,7 @@ Hit marker, headshot and kill tones are generated in code (Web Audio).
 sniper_bang.mp3 (sniper shot)
   "bang" by Dragon Studio (Pixabay, sound 487680), supplied by the project owner - Pixabay Content License
 
-ak_shot.mp3 (A-K shot), shotgun_shot.mp3 (shotgun shot)
+shotgun_shot.mp3 (shotgun shot)
   supplied by the project owner
 
 sg_open.mp3, sg_shell1.mp3, sg_shell2.mp3 (Rack / Shell in Chamber / Subsequent Shells)
