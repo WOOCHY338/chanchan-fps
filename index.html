@@ -1038,6 +1038,7 @@ function createDummy(team) {
     o.userData.dummy = root;
   });
   head.traverse(o => { if (o.isMesh) o.userData.isHead = true; });
+  for (const leg of [legL, legR]) leg.traverse(o => { if (o.isMesh) o.userData.isLeg = true; });   // leg hits (sniper: 3 to kill)
   root.rotation.order = 'YXZ';
   root.userData = { legL, legR, armL, armR, head, phase: Math.random() * 10, hp: 100, dead: false, deadT: 0, hitT: 0 };
   return root;
@@ -1408,8 +1409,9 @@ const GUNS = {
   rifle: { name: 'A-K', speedMul: 1 },
   // per pellet; 8 pellets per barrel, falloff from 8 m, both barrels at once on right-click
   shotgun: { name: '더블배럴', mag: 2, interval: 0.24, pellets: 8, body: 12, head: 24, spread: 4.2, range: 60, speedMul: 1, reload: 2.3, fillP: 0.66 },
-  // one-shot body, AWP-style scope with two zoom levels; the bolt is worked after every shot
-  sniper: { name: '저격총', mag: 5, interval: 1.25, body: 115, head: 250, range: 300, speedMul: 0.85, scopedSpeedMul: 0.5,
+  // AWP-style scope with two zoom levels; the bolt is worked after every shot
+  // head 1 shot, body 2 (55 × 2), legs 3 (34 × 3)
+  sniper: { name: '저격총', mag: 5, interval: 1.25, body: 55, head: 250, leg: 34, range: 300, speedMul: 0.85, scopedSpeedMul: 0.5,
     reload: 3.0, fillP: 0.63, zoom: [2.6, 6], noscope: 7, bolt: 0.95, boltDelay: 0.2 },
 };
 let primaryGun = 'rifle';
@@ -1661,14 +1663,14 @@ function castShot(offPitch, offYaw, range) {
 // one trigger pull: pellets on the same target add up and are reported once (like one A-K bullet)
 function applyGunHits(list, w) {
   const per = new Map();
-  for (const { hit, dir, body, head: headDmg } of list) {
+  for (const { hit, dir, body, head: headDmg, leg = body } of list) {
     if (!hit) continue;
     const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : dir.clone().negate();
     const dummy = hit.object.userData.dummy;
     if (!dummy) { addDecal(hit.point, normal); spawnConfetti(hit.point, normal, hit.object.material.color.getHex(), 3); continue; }
     const head = !!hit.object.userData.isHead;
     const e = per.get(dummy) || { dmg: 0, head: false };
-    e.dmg += head ? headDmg : body;
+    e.dmg += head ? headDmg : hit.object.userData.isLeg ? leg : body;
     e.head = e.head || head;
     per.set(dummy, e);
     spawnConfetti(hit.point, normal, head ? 0xf4efe2 : hit.object.material.color.getHex(), head ? 8 : 4);
@@ -1715,7 +1717,7 @@ function fireSniper() {
   const r = spread * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
   const shot = castShot(Math.sin(a) * r, Math.cos(a) * r, G.range);
   reportShot(camera.position, shot.hit ? shot.hit.point : camera.position.clone().addScaledVector(shot.dir, 120));
-  applyGunHits([{ ...shot, body: G.body, head: G.head }], 'sniper');
+  applyGunHits([{ ...shot, body: G.body, head: G.head, leg: G.leg }], 'sniper');
   sr.kick = 1;
   sr.flashT = 0.06;
   recoil.pendPitch += 3.8 + Math.random() * 0.5;
