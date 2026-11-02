@@ -882,7 +882,7 @@ const dummies = [];
   });
 
 // ── SHOOTING ──
-const WEAPON = { magSize: 30, fireInterval: 0.08, bodyDmg: 17, headDmg: 34, range: 200 };   // 6 body shots in 0.4 s, or 3 heads
+const WEAPON = { magSize: 30, fireInterval: 0.1, bodyDmg: 17, headDmg: 34, range: 200 };   // 6 body shots (0.5 s at 600 rpm), or 3 heads
 const weapon = { ammo: WEAPON.magSize, cooldown: 0, reloading: 0, reload: RELOADS.tac, kick: 0, spray: 0 };
 
 // Recoil is tracked as an offset on top of the player's aim so it can be recovered after a burst.
