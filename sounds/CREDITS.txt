@@ -20,3 +20,15 @@ sniper_bang.mp3 (sniper shot)
 
 ak_shot.mp3 (A-K shot), shotgun_shot.mp3 (shotgun shot)
   supplied by the project owner
+
+sg_open.mp3, sg_shell1.mp3, sg_shell2.mp3 (Rack / Shell in Chamber / Subsequent Shells)
+  "Shotgun Reload Sound Effects" on OpenGameArt.org - CC0
+  https://opengameart.org/content/shotgun-reload-sound-effects
+
+bolt_lift/back/fwd/lock.wav, sg_close.wav (clips cut from equipment_clicks3.wav)
+  "equipment clicks III" on OpenGameArt.org (www.lfa.com) - CC0
+  https://opengameart.org/content/equipment-clicks-iii
+
+mag_in.wav (clipload1.wav), mag_out.wav (clipload2.wav)
+  "Gun reload sound effects" by Brian MacIntosh on OpenGameArt.org - CC0
+  https://opengameart.org/content/gun-reload-sound-effects

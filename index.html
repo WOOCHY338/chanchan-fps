@@ -448,7 +448,10 @@ const SFX = (() => {
   const buffers = {};
   let volume = 0.7;
   const FILES = {
-    akshot: 'ak_shot.mp3', shotgun: 'shotgun_shot.mp3', sniper: 'sniper_bang.mp3', reload: 'ak_reload.wav', rack: 'ak_rack.wav', click: 'metalClick.ogg',
+    akshot: 'ak_shot.mp3', shotgun: 'shotgun_shot.mp3', sniper: 'sniper_bang.mp3', reload: 'ak_reload.wav',
+    sgOpen: 'sg_open.mp3', sgShell1: 'sg_shell1.mp3', sgShell2: 'sg_shell2.mp3', sgClose: 'sg_close.wav',
+    boltLift: 'bolt_lift.wav', boltBack: 'bolt_back.wav', boltFwd: 'bolt_fwd.wav', boltLock: 'bolt_lock.wav',
+    magIn: 'mag_in.wav', magOut: 'mag_out.wav', rack: 'ak_rack.wav', click: 'metalClick.ogg',
     slice1: 'knifeSlice.ogg', slice2: 'knifeSlice2.ogg',
     draw1: 'drawKnife1.ogg', draw2: 'drawKnife2.ogg', draw3: 'drawKnife3.ogg',
     cloth1: 'cloth1.ogg', cloth2: 'cloth2.ogg',
@@ -1728,23 +1731,24 @@ function startGunReload() {
   if (loadout.phase !== 'idle') return;
   if (w === 'shotgun' && sg.reloading <= 0 && sg.ammo < GUNS.shotgun.mag) {
     sg.reloading = GUNS.shotgun.reload; sg.ejected = false;
+    // offsets skip each recording's lead-in so its click lands on the matching keyframe
     const T = GUNS.shotgun.reload;
-    gunSound('click', { vol: 0.5, rate: 0.7, delay: 0.16 * T });                       // break open
-    gunSound('click', { vol: 0.45, rate: 1.15, delay: 0.62 * T });                     // shells in
-    gunSound('click', { vol: 0.45, rate: 1.05, delay: 0.65 * T });
-    gunSound('rack', { vol: 0.55, delay: 0.79 * T, offset: 1.18 });                    // snap shut
+    gunSound('sgOpen', { vol: 0.8, delay: 0.15 * T, offset: 0.6 });                   // break open
+    gunSound('sgShell1', { vol: 0.7, delay: 0.62 * T, offset: 0.48 });                 // shells in
+    gunSound('sgShell2', { vol: 0.6, delay: 0.65 * T, offset: 0.64 });
+    gunSound('sgClose', { vol: 0.8, delay: 0.79 * T });                                // snap shut
   }
   if (w === 'sniper' && sr.reloading <= 0 && sr.ammo < GUNS.sniper.mag && sr.bolt <= 0 && sr.boltDelay <= 0) {
     sr.reloading = GUNS.sniper.reload; sr.zoom = 0; sr.resume = 0; sr.ejected = true;
     const T = GUNS.sniper.reload;
-    gunSound('reload', { vol: 0.75, delay: 0.63 * T - 1.27 });
-    gunSound('click', { vol: 0.5, rate: 0.8, delay: 0.78 * T });
-    gunSound('rack', { vol: 0.6, delay: 0.87 * T - 0.3, offset: 1.0 });
+    gunSound('magOut', { vol: 0.7, delay: 0.26 * T - 0.06 });
+    gunSound('magIn', { vol: 0.8, delay: 0.63 * T - 0.07 });
+    boltSounds([0.78, 0.83, 0.87, 0.9].map(p => p * T));
   }
 }
-function boltSounds() {
-  gunSound('click', { vol: 0.45, rate: 0.85, delay: 0.25 * GUNS.sniper.bolt });
-  gunSound('rack', { vol: 0.55, delay: 0.6 * GUNS.sniper.bolt - 0.29, offset: 1.0 });
+// bolt: lift, pull back, push forward, lock (times in seconds from now)
+function boltSounds(at = [0.24, 0.42, 0.58, 0.7].map(p => p * GUNS.sniper.bolt)) {
+  ['boltLift', 'boltBack', 'boltFwd', 'boltLock'].forEach((n, i) => gunSound(n, { vol: 0.75, delay: Math.max(0, at[i] - 0.02) }));
 }
 
 // called every frame from updateShooting
