@@ -156,7 +156,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
 <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
 <div id="hitmarker"></div>
 <div id="killfeed"></div>
-<div id="ammo"><div class="reload" id="reload-text"></div><div class="wname" id="weapon-name">AK</div><div id="ammo-count"><span class="cur" id="ammo-cur">30</span><span class="max"> / 30</span></div><div class="slots" id="slot-hint">1 AK · 3 기본칼</div></div>
+<div id="ammo"><div class="reload" id="reload-text"></div><div class="wname" id="weapon-name">A-K</div><div id="ammo-count"><span class="cur" id="ammo-cur">30</span><span class="max"> / 30</span></div><div class="slots" id="slot-hint">1 A-K · 3 기본칼</div></div>
 
 <div id="hud">
   <div>HP: <span id="hp">100</span> / 100</div>
@@ -1926,8 +1926,8 @@ function updateShooting(dt) {
   const knifeOut = loadout.current === 'knife';
   ammoCountEl.style.display = knifeOut ? 'none' : '';
   const knifeName = KNIFE_SKINS[knifeSkin].name;
-  weaponNameEl.textContent = knifeOut ? knifeName : 'AK';
-  slotHintEl.textContent = `1 AK · 3 ${knifeName}`;
+  weaponNameEl.textContent = knifeOut ? knifeName : 'A-K';
+  slotHintEl.textContent = `1 A-K · 3 ${knifeName}`;
   document.getElementById('ammo-cur').textContent = weapon.ammo;
   document.getElementById('reload-text').textContent = knifeOut ? '' : weapon.reloading > 0 ? 'RELOADING' : (weapon.ammo === 0 ? 'PRESS R' : '');
 }
