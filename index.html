@@ -289,8 +289,8 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <div class="page-title">플레이</div>
       <div class="row left"><input id="name-input" class="field" maxlength="12" placeholder="닉네임"></div>
       <div class="mode-cards">
-        <button class="mode-card elim" id="btn-create-elim"><b>섬멸전</b><span>상대 팀 전멸 · 5점 선승</span><i>방 만들기</i></button>
-        <button class="mode-card bomb" id="btn-create-bomb"><b>폭탄전</b><span>A/B 설치·해체 · 공수 교대</span><i>방 만들기</i></button>
+        <button class="mode-card elim" id="btn-create-elim"><b>섬멸전</b><i>방 만들기</i></button>
+        <button class="mode-card bomb" id="btn-create-bomb"><b>폭탄전</b><i>방 만들기</i></button>
       </div>
       <label class="sub check"><input type="checkbox" id="public-check" checked> 일반방으로 열기 (누구나 목록에서 들어올 수 있어요)</label>
       <div class="row left">
@@ -306,16 +306,15 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 
     <section class="menu-page hidden" id="page-shop">
       <div class="page-title">상점</div>
-      <div class="sub">칼을 골라서 장착하세요 · 3번 키로 꺼내요</div>
       <div class="shop-grid">
         <div class="shop-item" data-skin="basic">
           <div class="shop-art basic"></div>
-          <b>기본칼</b><span>발로란트 제노헌터 스타일 · 손가락으로 돌려서 꺼내기</span>
+          <b>기본칼</b>
           <button class="btn equip">장착</button>
         </div>
         <div class="shop-item" data-skin="karambit">
           <div class="shop-art karambit"></div>
-          <b>카람빗</b><span>챔피언스 2021 스타일 찌르기 · 금색 궤적</span>
+          <b>카람빗</b>
           <button class="btn equip">장착</button>
         </div>
       </div>
@@ -326,13 +325,11 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
     <button class="event-card ev1" data-goto="play">
       <span class="ev-tag">이벤트</span>
       <b>폭탄전 오픈</b>
-      <span>A·B 사이트, 롱·링크·미드·백사이트까지. 최대 5대5로 붙어보세요</span>
       <i>지금 플레이 ›</i>
     </button>
     <button class="event-card ev2" data-goto="shop">
       <span class="ev-tag">이벤트 2</span>
-      <b>챔피언스 카람빗</b>
-      <span>조준점에 꽂히는 찌르기와 금색 궤적, 상점에서 무료로 장착</span>
+      <b>카람빗</b>
       <i>상점 가기 ›</i>
     </button>
   </div>
