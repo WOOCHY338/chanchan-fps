@@ -1052,7 +1052,7 @@ function updateAds(dt) {
   ads.t = want ? Math.min(1, ads.t + step) : Math.max(0, ads.t - step);
   const e = adsEase();
   const zoom = 1 + (ADS.zoom - 1) * e;
-  const punch = 1 + (impact.amp > 0 ? impactCurve() * impact.amp * 0.05 : 0);   // heavy stab: zoom in ~5% for a moment
+  const punch = 1 + (impact.amp > 0 ? impactCurve() * impact.amp * 0.025 : 0);   // heavy stab: zoom in ~2.5% for a moment
   camera.fov = 2 * Math.atan(Math.tan(CONFIG.fov * Math.PI / 360) / (zoom * punch)) * 180 / Math.PI;
   camera.updateProjectionMatrix();
   vmCamera.fov = 58 + (ADS.vmFov - 58) * e;
@@ -1123,6 +1123,38 @@ function spawnConfetti(point, normal, color, count) {
   }
 }
 
+// sparks: short bright streaks thrown off the surface, stretched along their velocity
+const sparks = [];
+const sparkGeo = new THREE.BoxGeometry(0.008, 0.008, 0.07);
+const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffe3a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+function spawnSparks(point, normal, count) {
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(sparkGeo, sparkMat.clone());
+    m.position.copy(point).addScaledVector(normal, 0.02);
+    const v = normal.clone().multiplyScalar(2.5 + Math.random() * 3)
+      .add(new THREE.Vector3((Math.random() - 0.5) * 4, Math.random() * 2.5, (Math.random() - 0.5) * 4));
+    m.userData = { v, life: 0.18 + Math.random() * 0.17, max: 0.35 };
+    m.raycast = () => {};
+    scene.add(m);
+    sparks.push(m);
+  }
+}
+// cut marks left on walls by the knife; the oldest go first
+const cutMarks = [];
+const cutGeo = new THREE.PlaneGeometry(0.3, 0.022);
+function addCutMark(point, normal) {
+  const m = new THREE.Mesh(cutGeo, new THREE.MeshBasicMaterial({ color: 0x2a2420, transparent: true, opacity: 0.75, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -2 }));
+  m.position.copy(point).addScaledVector(normal, 0.004);
+  m.lookAt(point.clone().add(normal));
+  m.rotateZ((Math.random() - 0.5) * 1.2);
+  m.raycast = () => {};
+  m.userData.life = 8;
+  scene.add(m);
+  cutMarks.push(m);
+  if (cutMarks.length > 24) { const old = cutMarks.shift(); scene.remove(old); old.material.dispose(); }
+}
+
 const crosshairEl = document.getElementById('crosshair');
 const ammoCountEl = document.getElementById('ammo-count');
 const weaponNameEl = document.getElementById('weapon-name');
@@ -1138,7 +1170,7 @@ function showHitmarker(head) {
   hitmarkerTimer = 0.1;
 }
 // screen impact for heavy stabs: a short camera kick, a little roll, an FOV punch, and a pause in the swing on a hit
-const impact = { t: 1, amp: 0, roll: 0 };
+const impact = { t: 1, amp: 0, seed: 0 };
 const IMPACT = { rise: 0.035, fall: 9 };
 // 0 → 1 fast, then eases back to 0
 const impactCurve = () => impact.t < IMPACT.rise ? impact.t / IMPACT.rise : Math.exp(-(impact.t - IMPACT.rise) * IMPACT.fall);
@@ -1146,10 +1178,9 @@ function knifeImpact(result) {
   const hit = result === 'hit';
   impact.t = 0;
   impact.amp = hit ? 1 : result === 'world' ? 0.55 : 0.35;
-  impact.roll = (Math.random() < 0.5 ? -1 : 1);
+  impact.seed = Math.random() * 100;
   if (hit) {
     knifeState.stop = 0.07;   // hit-stop: the swing hangs for a moment on contact
-    document.getElementById('boom-flash').style.opacity = '0.14';
     SFX.tone(85, 0.22, 0.55, 0, 'sine');
     SFX.tone(170, 0.09, 0.3, 0, 'triangle');
     SFX.play('click', { vol: 0.45, rate: 0.55 });
@@ -1398,11 +1429,6 @@ function poseKnifeLeft(lp) {
   knifeLeftSleeve.position.z = len / 2;
 }
 
-// swipe trail: a white paper arc flashed during the hit frames
-const trailMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
-const knifeTrail = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.4, 28, 1, 0, 1), trailMat);
-knifeRoot.add(knifeTrail);
-let trailT = 0;
 
 // Keyframes traced from the Valorant Xenohunter knife clip at 60fps.
 // at = right-hand (glove) position on the reference square [s, t, depth]; r = hand rotation
@@ -1416,6 +1442,9 @@ const K_LOWER2 = [0, 0.3, 1.2];                                   // almost back
 const SPIN = turns => turns * Math.PI * 2;                        // blade angle after n counter-clockwise turns
 const spun = (r, turns) => [r[0], r[1], r[2] + SPIN(turns)];
 const OPEN_R = [-0.35, 0.45, 0.2];                                // open palm, fingers up, palm toward the knife
+// finger twirl key: fist at h, the knife turning around the grip (just in front of the fist) at blade angle ka,
+// the wrist rolled by `wrist` so the hand visibly drives the spin
+const twirl = (t, h, ka, wrist) => ({ t, at: [h[0], h[1], 0.5], r: [0, 0, wrist], kat: [h[0] - 0.005, h[1] - 0.01, 0.49], ka });
 const KNIFE_ANIMS = {
   // light A, ref 6.667-7.33s / 8.2s: rise, cock at the top-right edge, slash diagonally down-left across the screen,
   // exit bottom-left, come back low to idle. The next light can start from 0.42s.
@@ -1450,24 +1479,22 @@ const KNIFE_ANIMS = {
       { t: 0.95, at: [0.55, 0.7, 0.5], r: K_LOWER1 },
       { t: 1.05, at: [0.57, 0.8, 0.5], r: K_LOWER2 },
       { t: 1.12, ...K_IDLE }] },
-  // draw (equip), ref 5.38-6.11s: rise from bottom-right, flourish left → down → up → left, hold upright, settle
-  // draw (equip), ref 5.40-6.11s: the hand comes up gripping the knife (up-left), opens and tosses it; the knife
-  // spins one turn CLOCKWISE in the air around the open palm (ka = blade angle, counter-clockwise-positive, so it
-  // only decreases; kat = grip point on the reference square), is caught upright at 0.333s, held, then settles.
+  // draw (equip), ref 5.40-6.11s timing: the hand comes up gripping the knife, then the fingers roll it one turn
+  // CLOCKWISE around the grip (ka = blade angle, counter-clockwise-positive, so it only decreases) while the wrist
+  // flicks with it, the knife never leaves the fist, it stops upright at 0.333s, holds, then settles
   draw: { dur: 0.73, ease: 'linear',
     keys: [{ t: 0, at: [0.75, 1.7, 0.5], r: [0.3, 0, 0.6] },
       { t: 0.017, at: [0.7, 1.45, 0.5], r: [0.2, 0, 0.6] },
       { t: 0.033, at: [0.62, 0.92, 0.5], r: [0, 0, 0.6] },
-      { t: 0.05, at: [0.62, 0.88, 0.5], r: [0, 0, 0.55] },
-      { t: 0.067, at: [0.62, 0.8, 0.5], r: OPEN_R, open: true, kat: [0.42, 0.8, 0.47], ka: -0.3 },
-      { t: 0.1, at: [0.62, 0.75, 0.5], r: OPEN_R, open: true, kat: [0.3, 0.6, 0.47], ka: -1.35 },
-      { t: 0.133, at: [0.62, 0.7, 0.5], r: OPEN_R, open: true, kat: [0.33, 0.47, 0.47], ka: -2.4 },
-      { t: 0.167, at: [0.62, 0.66, 0.5], r: OPEN_R, open: true, kat: [0.5, 0.42, 0.47], ka: -3.14 },
-      { t: 0.2, at: [0.62, 0.62, 0.5], r: OPEN_R, open: true, kat: [0.55, 0.38, 0.47], ka: -3.9 },
-      { t: 0.233, at: [0.62, 0.6, 0.5], r: OPEN_R, open: true, kat: [0.68, 0.4, 0.47], ka: -4.5 },
-      { t: 0.267, at: [0.63, 0.6, 0.5], r: OPEN_R, open: true, kat: [0.68, 0.5, 0.47], ka: -4.9 },
-      { t: 0.3, at: [0.63, 0.61, 0.5], r: OPEN_R, open: true, kat: [0.66, 0.52, 0.47], ka: -5.1 },
-      { t: 0.317, at: [0.62, 0.62, 0.5], r: OPEN_R, open: true, kat: [0.62, 0.6, 0.47], ka: -5.6 },
+      { t: 0.05, at: [0.62, 0.86, 0.5], r: [0, 0, 0.6] },
+      twirl(0.067, [0.62, 0.8], 0.6, 0.45),
+      twirl(0.1, [0.62, 0.75], -0.6, 0.15),
+      twirl(0.133, [0.62, 0.71], -1.9, -0.1),
+      twirl(0.167, [0.61, 0.68], -3.1, 0.05),
+      twirl(0.2, [0.6, 0.66], -4.2, 0.3),
+      twirl(0.233, [0.6, 0.645], -5.1, 0.45),
+      twirl(0.267, [0.6, 0.635], -5.7, 0.35),
+      twirl(0.3, [0.6, 0.635], -6.0, 0.2),
       { t: 0.333, at: [0.6, 0.64, 0.5], r: K_RAISED },
       { t: 0.45, at: [0.6, 0.62, 0.5], r: K_RAISED },
       { t: 0.57, at: [0.55, 0.7, 0.5], r: K_LOWER1 },
@@ -1617,7 +1644,8 @@ const KARAMBIT_ANIMS = {
   heavy: { dur: 1.4, hitAt: 0.17, ease: 'spline', pivotRing: true, range: KNIFE.heavyRange, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
     streak: { from: [(0.74 - 0.5) / 0.5625 + 0.5, 0.3], to: [0.5, 0.5], d: 0.6, width: 0.045, color: 0xffc24a },
     keys: [{ t: 0, ...KR_IDLE },
-      { t: 0.1, at: csAt(0.675, 0.92), r: KR_THRUST },
+      // wind-up keeps the claw up-right, so on the punch the tip arcs over the knuckles into the crosshair (gold arc in the video)
+      { t: 0.1, at: csAt(0.68, 0.9), r: [-0.2, -0.2, 1.45] },
       // fist just below-right of center so the blade tip lands exactly on the crosshair
       { t: 0.17, at: csAt(0.553, 0.633, 0.6), r: KR_THRUST },
       { t: 0.4, at: csAt(0.55, 0.64, 0.6), r: [-1.22, -0.54, 2.45] },
@@ -1668,17 +1696,66 @@ const knifeIdle = () => KNIFE_SKIN_IDLE[knifeSkin] || K_IDLE;
 // the selected knife's own version of an animation, else the shared one
 const knifeAnim = name => (KNIFE_SKIN_ANIMS[knifeSkin] && KNIFE_SKIN_ANIMS[knifeSkin][name]) || KNIFE_ANIMS[name];
 
-// long slash streak (light attacks): a thin white strip from where the swing starts to where it ends
-const streakMat = new THREE.MeshBasicMaterial({ color: 0xf4f8ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
-const knifeStreak = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), streakMat);
-knifeRoot.add(knifeStreak);
-let streakT = 0;
-function showStreak(s) {
-  knifeStreak.position.set((s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2, (s.a[2] + s.b[2]) / 2);
-  knifeStreak.rotation.set(0, 0, Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]));
-  knifeStreak.scale.set(Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]), s.width, 1);
-  streakMat.color.setHex(s.color || 0xf4f8ff);
-  streakT = 0.2;
+// ── blade trail: the ribbon the blade actually sweeps (tip → a point partway down the blade), kept for ~0.13s and
+// fading/tapering with age, recorded around each attack's hit frame. Plain alpha blending, so it still shows on bright walls.
+const TRAIL = { life: 0.13, max: 28, lead: 0.1, tail: 0.09 };
+const bladeTrail = { samples: [], color: new THREE.Color(0xdfe8ff), pts: {} };
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL.max * 6), 3));
+trailGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAIL.max * 8), 4));
+{
+  const idx = [];
+  for (let i = 0; i < TRAIL.max - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  trailGeo.setIndex(idx);
+}
+const bladeTrailMesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
+  depthWrite: false, side: THREE.DoubleSide }));
+bladeTrailMesh.frustumCulled = false;
+knifeRoot.add(bladeTrailMesh);
+const _trTip = new THREE.Vector3(), _trBase = new THREE.Vector3();
+// tip = the vertex farthest from where the knife is held (ring for the karambit), base = 45% of the way back
+function bladePoints() {
+  if (bladeTrail.pts[knifeSkin]) return bladeTrail.pts[knifeSkin];
+  knifeModel.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(knifeModel.matrixWorld).invert();
+  const hold = (KNIFE_SKINS[knifeSkin].pivot || new THREE.Vector3()).clone();
+  const v = new THREE.Vector3();
+  let tip = hold.clone(), best = 0;
+  KNIFE_SKINS[knifeSkin].group.traverse(o => {
+    if (!o.isMesh) return;
+    const pos = o.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(inv);
+      const d = v.distanceTo(hold);
+      if (d > best) { best = d; tip.copy(v); }
+    }
+  });
+  return (bladeTrail.pts[knifeSkin] = { tip, base: hold.clone().lerp(tip, 0.55) });
+}
+function updateBladeTrail(dt, a) {
+  const S = bladeTrail.samples;
+  for (const smp of S) smp.age += dt;
+  while (S.length && S[0].age > TRAIL.life) S.shift();
+  if (a && a.hitAt !== undefined && knifeRoot.visible && knifeState.t > a.hitAt - TRAIL.lead && knifeState.t < a.hitAt + TRAIL.tail) {
+    bladeTrail.color.setHex(a.streak && a.streak.color || 0xdfe8ff);
+    const pts = bladePoints();
+    knifeRoot.updateMatrixWorld(true);
+    _trTip.copy(pts.tip); knifeModel.localToWorld(_trTip); knifeRoot.worldToLocal(_trTip);
+    _trBase.copy(pts.base); knifeModel.localToWorld(_trBase); knifeRoot.worldToLocal(_trBase);
+    S.push({ tip: _trTip.clone(), base: _trBase.clone(), age: 0 });
+    if (S.length > TRAIL.max) S.shift();
+  }
+  const pos = trailGeo.attributes.position.array, col = trailGeo.attributes.color.array, c = bladeTrail.color;
+  for (let i = 0; i < S.length; i++) {
+    const smp = S[i], f = 1 - smp.age / TRAIL.life;            // 1 = fresh
+    const k = Math.pow(f, 1.4) * 0.7;
+    _trBase.copy(smp.tip).lerp(smp.base, 0.25 + 0.75 * f);    // older slices get thinner toward the tip
+    pos.set([smp.tip.x, smp.tip.y, smp.tip.z, _trBase.x, _trBase.y, _trBase.z], i * 6);
+    col.set([c.r, c.g, c.b, k, c.r, c.g, c.b, k * 0.25], i * 8);   // solid at the tip edge, fading toward the base
+  }
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.color.needsUpdate = true;
+  trailGeo.setDrawRange(0, Math.max(0, S.length - 1) * 6);
 }
 
 // from = the pose the hand was in when this animation started, so attacks blend in instead of snapping
@@ -1755,6 +1832,8 @@ function knifeStrike(anim) {
   const dummy = best.object.userData.dummy;
   if (!dummy) {
     spawnConfetti(best.point, normal, best.object.material.color.getHex(), 6);
+    spawnSparks(best.point, normal, 10);
+    addCutMark(best.point, normal);
     return 'world';
   }
   const u = dummy.userData;
@@ -1837,14 +1916,6 @@ function updateKnife(dt) {
       knifeState.hitDone = true;
       const result = knifeStrike(a);
       if (knifeState.name === 'heavy') knifeImpact(result);
-      if (a.streak) showStreak(a.streak);
-      if (a.trail) {
-        knifeTrail.position.set(...a.trail.pos);
-        knifeTrail.rotation.set(0, 0, 0);
-        knifeTrail.geometry.dispose();
-        knifeTrail.geometry = new THREE.RingGeometry(a.trail.r0, a.trail.r1, 32, 1, a.trail.start, a.trail.len);
-        trailT = 0.16;
-      }
     }
     if (knifeState.t < a.dur) pose = sampleKnife(a, knifeState.t);
     if (knifeState.t >= a.dur) knifeState.anim = null;
@@ -1852,10 +1923,6 @@ function updateKnife(dt) {
     knifeState.combo = 0;   // combo restarts at slash A after the hand settles
   }
   knifeState.last = { p: pose.p.slice(), r: pose.r.slice(), lp: pose.lp.slice() };
-  trailT = Math.max(0, trailT - dt);
-  trailMat.opacity = (trailT / 0.16) * 0.75;
-  streakT = Math.max(0, streakT - dt);
-  streakMat.opacity = Math.min(1, streakT / 0.2 * 1.4) * 0.85;
 
   const speedNow = Math.hypot(player.velocity.x, player.velocity.z);
   const time = performance.now() * 0.001;
@@ -1911,6 +1978,7 @@ function updateKnife(dt) {
   }
   const shove = impact.amp > 0 ? impactCurve() * impact.amp * 0.035 : 0;
   knifeRoot.position.set(KNIFE_ROOT[0] + bobX + vmSway.x, KNIFE_ROOT[1] + bobY + vmSway.y - 0.35 * loadout.h, KNIFE_ROOT[2] - shove);
+  updateBladeTrail(dt, knifeState.anim);
   knifeRoot.rotation.set(-vmSway.y * 2 - 0.8 * loadout.h, vmSway.x * 2, bobX * 1.5);
   poseKnifeForearm();
   poseKnifeLeft(pose.lp);
@@ -1964,6 +2032,22 @@ function updateShooting(dt) {
     c.position.addScaledVector(u.v, dt);
     c.rotation.x += u.spin.x * dt;
     c.rotation.y += u.spin.y * dt;
+  }
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const m = sparks[i], u = m.userData;
+    u.life -= dt;
+    if (u.life <= 0) { scene.remove(m); m.material.dispose(); sparks.splice(i, 1); continue; }
+    u.v.y -= 12 * dt;
+    m.position.addScaledVector(u.v, dt);
+    m.lookAt(m.position.clone().add(u.v));
+    m.material.opacity = Math.min(1, u.life / 0.12);
+  }
+  for (let i = cutMarks.length - 1; i >= 0; i--) {
+    const m = cutMarks[i];
+    m.userData.life -= dt;
+    if (m.userData.life < 1.5) m.material.opacity = Math.max(0, m.userData.life / 1.5) * 0.75;
+    if (m.userData.life <= 0) { scene.remove(m); m.material.dispose(); cutMarks.splice(i, 1); }
   }
 
   hitmarkerTimer -= dt;
@@ -2359,9 +2443,11 @@ function update(dt) {
   camera.lookAt(eyePos.clone().add(lookDir));
   impact.t += dt;
   if (impact.amp > 0) {
-    const k = impactCurve() * impact.amp;
-    camera.rotateX(-k * 0.022);                  // nod down into the stab
-    camera.rotateZ(k * 0.012 * impact.roll);     // slight roll
+    // a short dip into the stab plus a quick decaying shake (a few incommensurate sines = rough, not wobbly)
+    const k = impactCurve() * impact.amp, t = impact.t * 60 + impact.seed;
+    camera.rotateX(-k * 0.013 + k * 0.007 * (Math.sin(t * 1.7) + 0.6 * Math.sin(t * 3.1)));
+    camera.rotateY(k * 0.006 * (Math.sin(t * 2.3 + 1) + 0.5 * Math.sin(t * 4.7)));
+    camera.rotateZ(k * 0.004 * Math.sin(t * 2.9 + 2));
   }
 
   updateShooting(dt);
