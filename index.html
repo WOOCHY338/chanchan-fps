@@ -156,7 +156,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
 <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
 <div id="hitmarker"></div>
 <div id="killfeed"></div>
-<div id="ammo"><div class="reload" id="reload-text"></div><div class="wname" id="weapon-name">A-K</div><div id="ammo-count"><span class="cur" id="ammo-cur">30</span><span class="max"> / 30</span></div><div class="slots" id="slot-hint">1 A-K · 3 기본칼</div></div>
+<div id="ammo"><div class="reload" id="reload-text"></div><div class="wname" id="weapon-name">A-K</div><div id="ammo-count"><span class="cur" id="ammo-cur">35</span><span class="max"> / 35</span></div><div class="slots" id="slot-hint">1 A-K · 3 기본칼</div></div>
 
 <div id="hud">
   <div>HP: <span id="hp">100</span> / 100</div>
@@ -882,7 +882,7 @@ const dummies = [];
   });
 
 // ── SHOOTING ──
-const WEAPON = { magSize: 30, fireInterval: 0.1, bodyDmg: 17, headDmg: 34, range: 200 };   // 6 body shots (0.5 s at 600 rpm), or 3 heads
+const WEAPON = { magSize: 35, fireInterval: 0.1, bodyDmg: 17, headDmg: 34, range: 200 };   // 6 body shots (0.5 s at 600 rpm), or 3 heads
 const weapon = { ammo: WEAPON.magSize, cooldown: 0, reloading: 0, reload: RELOADS.tac, kick: 0, spray: 0 };
 
 // Recoil is tracked as an offset on top of the player's aim so it can be recovered after a burst.
@@ -901,7 +901,7 @@ const SPRAY = (() => {
   const climb = [0, 0.15, 0.3, 0.7, 1.0, 1.1, 1.05, 0.95, 0.8, 0.65, 0.45, 0.3];
   const out = [];
   let p = 0;
-  for (let i = 0; i < 31; i++) {
+  for (let i = 0; i <= WEAPON.magSize; i++) {   // one entry per round, +1 for the chambered round
     p += i < climb.length ? climb[i] : 0.06;
     const y = i < RECOIL.plateauShot
       ? -0.03 * i
