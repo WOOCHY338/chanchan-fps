@@ -30,6 +30,27 @@ canvas { display: block; width: 100vw; height: 100vh; }
   pointer-events: none; z-index: 10; line-height: 1.6;
 }
 
+#chat { position: fixed; left: 20px; bottom: 112px; width: 380px; max-width: calc(100vw - 40px); z-index: 130;
+  display: none; flex-direction: column; gap: 4px; pointer-events: none; }
+#chat.show { display: flex; }
+#chat-log { display: flex; flex-direction: column; gap: 2px; font-size: 14px; font-weight: 600; color: #fff;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.85); }
+#chat-log div { padding: 2px 8px; border-radius: 4px; background: rgba(0,0,0,0.35); transition: opacity 0.6s; word-break: break-all; }
+#chat-log div.old { opacity: 0; }
+#chat.typing #chat-log div.old, #chat.lobby #chat-log div.old { opacity: 1; }
+#chat-log .who.blue { color: #9cc1ff; } #chat-log .who.red { color: #ff9d95; }
+#chat-log .ch { color: #ffd27a; margin-right: 4px; }
+#chat-row { display: none; gap: 6px; pointer-events: auto; }
+#chat.typing #chat-row, #chat.lobby #chat-row { display: flex; }
+#chat-row .ch { color: #fff; font-size: 13px; font-weight: 800; background: rgba(0,0,0,0.6); border-radius: 4px; padding: 6px 8px; white-space: nowrap; }
+#chat-input { flex: 1; background: rgba(20,22,26,0.85); color: #fff; border: 2px solid #777; border-radius: 4px; padding: 5px 8px;
+  font-size: 14px; font-family: inherit; }
+#voice-hud { position: fixed; left: 20px; bottom: 112px; transform: translateY(-100%); z-index: 130; pointer-events: none;
+  display: flex; flex-direction: column; gap: 3px; color: #fff; font-size: 13px; font-weight: 700; text-shadow: 1px 1px 0 rgba(0,0,0,0.8); }
+#chat.show ~ #voice-hud { left: 410px; }
+#voice-hud div { background: rgba(40,160,90,0.75); padding: 3px 9px; border-radius: 12px; }
+#voice-hud .me { background: rgba(220,140,40,0.85); }
+
 #settings-panel {
   position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.7);
   padding: 16px 20px; border-radius: 10px; color: #fff; font-size: 13px;
@@ -182,6 +203,8 @@ canvas { display: block; width: 100vw; height: 100vh; }
   <label>FOV <input type="range" id="fov-slider" min="50" max="110" step="1" value="65"> <span class="val" id="fov-val">65</span></label>
   <label>Invert Y <input type="checkbox" id="invert-y"></label>
   <label>Volume <input type="range" id="vol-slider" min="0" max="1" step="0.05" value="0.7"> <span class="val" id="vol-val">70</span></label>
+  <label>보이스 <input type="range" id="voice-slider" min="0" max="1" step="0.05" value="1"> <span class="val" id="voice-val">100</span></label>
+  <button class="btn ghost mic-btn" style="margin-top:4px;width:100%;padding:6px">🎤 마이크 켜기</button>
   <label>칼 <select id="knife-select" style="background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:12px">
     <option value="basic">기본칼</option>
     <option value="karambit">카람빗</option>
@@ -244,6 +267,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
     <button class="btn ghost" id="btn-leave">나가기</button>
   </div>
   <div id="lobby-msg" class="sub"></div>
+  <div class="row"><button class="btn ghost mic-btn">🎤 마이크 켜기</button><span class="sub">마이크를 켜면 V를 누르고 있는 동안 말해요 · 경기 중엔 팀에게만 들려요</span></div>
 </div>
 
 <div id="scorebar"><span class="s blue" id="score-blue">0</span><div class="mid"><b id="round-timer">1:40</b><span id="round-label">ROUND 1</span></div><span class="s red" id="score-red">0</span></div>
@@ -255,6 +279,8 @@ canvas { display: block; width: 100vw; height: 100vh; }
 <div id="dead-msg">사망<br><small style="font-size:16px">다음 라운드까지 관전 중</small></div>
 
 <canvas id="minimap"></canvas>
+<div id="chat"><div id="chat-log"></div><div id="chat-row"><span class="ch" id="chat-ch">전체</span><input id="chat-input" maxlength="80" autocomplete="off" placeholder="Enter: 전체 · T: 팀 · Esc: 닫기"></div></div>
+<div id="voice-hud"></div>
 <div id="debug-info"></div>
 
 <script>
@@ -2456,7 +2482,7 @@ function createHostRoom(code, mode, type = 'elim') {
   const broadcast = (msg, exceptId) => { for (const p of room.players.values()) if (p.id !== exceptId) sendTo(p, msg); };
   const teamOf = team => [...room.players.values()].filter(p => p.team === team);
   const lobbyInfo = () => ({ t: 'lobby', room: room.code, mode: room.mode, type: room.type, host: room.host, phase: room.phase, score: room.score,
-    players: [...room.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team })) });
+    players: [...room.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, pid: p.pid })) });
 
   function startRound() {
     room.round += 1; room.phase = 'prestart'; room.timer = RULES.prestart;
@@ -2569,9 +2595,9 @@ function createHostRoom(code, mode, type = 'elim') {
     broadcast({ t: 'snap', timer: room.timer, phase: room.phase, bomb: room.bomb,
       ps: [...room.players.values()].map(p => ({ id: p.id, ...p.state, hp: p.hp, dead: p.dead, act: p.actT > 0 ? p.act : null })) });
   }
-  function addPlayer(send) {
+  function addPlayer(send, pid) {
     const id = room.nextId++;
-    room.players.set(id, { id, send, name: 'player', team: 'blue', hp: 100, dead: false, state: { p: [0, 0, 0], yaw: 0, pitch: 0, w: 'rifle' }, joined: false });
+    room.players.set(id, { id, send, pid, name: 'player', team: 'blue', hp: 100, dead: false, state: { p: [0, 0, 0], yaw: 0, pitch: 0, w: 'rifle' }, joined: false });
     return id;
   }
   function leave(id) {
@@ -2604,6 +2630,19 @@ function createHostRoom(code, mode, type = 'elim') {
       return;
     }
     switch (m.t) {
+      case 'chat': {   // relayed to everyone, or only the sender's team (team chat works once the match has started)
+        const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+        const now = performance.now();
+        if (!text || now - (me.chatAt || 0) < 400) return;
+        me.chatAt = now;
+        const toTeam = !!m.toTeam && room.phase !== 'lobby';
+        const out = { t: 'chat', id, name: me.name, team: me.team, toTeam, text };
+        if (toTeam) for (const q of teamOf(me.team)) sendTo(q, out); else broadcast(out);
+        break;
+      }
+      case 'talk':     // push-to-talk indicator
+        broadcast({ t: 'talk', id, on: !!m.on }, id);
+        break;
       case 'mode': {   // host switches 섬멸전/폭탄전 and 1대1/2대2 before starting
         if (id !== room.host || room.phase !== 'lobby' || !MODES[m.mode] || (m.type !== 'elim' && m.type !== 'bomb')) return;
         const joined = [...room.players.values()].filter(p => p.joined);
@@ -2682,11 +2721,12 @@ function hostRoom(mode, type, attempt = 0, pub = false) {
   const peer = new Peer(PEER_PREFIX + code, { debug: 0 });
   net.peer = peer;
   $('menu-error').textContent = '방 여는 중…';
+  peer.on('call', onVoiceCall);
   peer.on('open', () => {
     const room = createHostRoom(code, mode, type);
     net.hostRoom = room;
     // the host plays through a local loopback (async, like a real connection)
-    const myId = room.addPlayer(msg => queueMicrotask(() => onNetMessage(msg)));
+    const myId = room.addPlayer(msg => queueMicrotask(() => onNetMessage(msg)), peer.id);
     net.send = msg => room.handle(myId, msg);
     $('menu-error').textContent = '';
     net.send({ t: 'create', name: playerName(), mode });
@@ -2697,7 +2737,7 @@ function hostRoom(mode, type, attempt = 0, pub = false) {
         return;
       }
       conn.on('open', () => {
-        const id = room.addPlayer(msg => conn.open && conn.send(msg));
+        const id = room.addPlayer(msg => conn.open && conn.send(msg), conn.peer);
         conn.on('data', m => room.handle(id, m));
         conn.on('close', () => room.leave(id));
         conn.on('error', () => room.leave(id));
@@ -2716,6 +2756,7 @@ function joinRoom(code) {
   const peer = new Peer({ debug: 0 });
   net.peer = peer;
   $('menu-error').textContent = '방장에게 연결 중…';
+  peer.on('call', onVoiceCall);
   const giveUp = setTimeout(() => {
     if (net.mode === 'menu') { netError('방장 컴퓨터에 연결할 수 없어요 (네트워크가 P2P를 막고 있을 수 있어요)'); peer.destroy(); }
   }, 12000);
@@ -2740,6 +2781,7 @@ function joinRoom(code) {
   });
 }
 function closeTransport() {
+  voiceReset();
   if (net.hostRoom) { net.hostRoom.stop(); net.hostRoom = null; }
   const conn = net.conn; net.conn = null;
   if (conn) conn.close();
@@ -2859,7 +2901,7 @@ $('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
 let lastCreate = { mode: '1v1', type: 'elim' };
 try { lastCreate = JSON.parse(localStorage.getItem('lastCreate')) || lastCreate; } catch (e) { /* storage blocked */ }
 const create = (mode, type) => {
-  SFX.unlock(); closeTransport(); $('menu-error').textContent = '';
+  SFX.unlock(); voiceOut(); closeTransport(); $('menu-error').textContent = '';
   lastCreate = { mode, type };
   try { localStorage.setItem('lastCreate', JSON.stringify(lastCreate)); } catch (e) { /* storage blocked */ }
   hostRoom(mode, type, 0, $('public-check').checked);
@@ -2991,6 +3033,173 @@ function renderLobby() {
   if (net.players.length > 1) net.quickNote = null;
 }
 
+// ── CHAT ── Enter: everyone, T: team (in a match). The host relays it like everything else.
+const chatEl = $('chat'), chatLog = $('chat-log'), chatInput = $('chat-input');
+const chat = { open: false, toTeam: false };
+function addChat(m) {
+  const row = document.createElement('div');
+  if (m.toTeam) { const c = document.createElement('span'); c.className = 'ch'; c.textContent = '[팀]'; row.appendChild(c); }
+  const who = document.createElement('span');
+  who.className = 'who ' + m.team;
+  who.textContent = (m.id === net.id ? '나' : m.name) + ': ';
+  row.append(who, document.createTextNode(m.text));
+  chatLog.appendChild(row);
+  while (chatLog.children.length > 8) chatLog.firstChild.remove();
+  setTimeout(() => row.classList.add('old'), 8000);
+  if (m.id !== net.id) SFX.tone(1400, 0.05, 0.05);
+}
+function openChat(toTeam) {
+  chat.open = true; chat.toTeam = toTeam;
+  releaseAllKeys();
+  $('chat-ch').textContent = toTeam ? '팀' : '전체';
+  chatEl.classList.add('typing');
+  chatInput.value = '';
+  chatInput.focus();
+}
+function closeChat() {
+  chat.open = false;
+  chatEl.classList.remove('typing');
+  chatInput.blur();
+}
+// typing must not move the player or fire game keys
+chatInput.addEventListener('keyup', e => e.stopPropagation());
+chatInput.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+    const text = chatInput.value.trim();
+    if (text) netSend({ t: 'chat', text, toTeam: chat.toTeam });
+    chatInput.value = '';
+    if (net.mode !== 'lobby') closeChat();
+  } else if (e.code === 'Escape') {
+    if (net.mode === 'lobby') chatInput.blur(); else closeChat();
+  }
+});
+chatInput.addEventListener('focus', () => { if (net.mode === 'lobby') { chat.toTeam = false; $('chat-ch').textContent = '전체'; } });
+document.addEventListener('keydown', e => {
+  if (chat.open || document.activeElement === chatInput) return;
+  if (net.mode === 'online' && (e.code === 'Enter' || e.code === 'KeyT')) { e.preventDefault(); openChat(e.code === 'KeyT'); }
+  else if (net.mode === 'lobby' && e.code === 'Enter' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); chatInput.focus(); }
+});
+
+// ── VOICE ── everyone calls everyone directly (PeerJS media calls; the room tells us each player's peer id).
+// The outgoing stream always exists (silent); turning the mic on plugs it in, and V opens it while held.
+// In the lobby everyone hears everyone; during a match only your team.
+const voice = { ac: null, gain: null, out: null, mic: null, micSrc: null, calls: new Map(), audios: new Map(), talking: new Set(), ptt: false, vol: 1 };
+function voiceOut() {
+  if (!voice.out) {
+    voice.ac = new (window.AudioContext || window.webkitAudioContext)();
+    const dest = voice.ac.createMediaStreamDestination();
+    voice.gain = voice.ac.createGain();
+    voice.gain.gain.value = 0;
+    voice.gain.connect(dest);
+    voice.out = dest.stream;
+  }
+  if (voice.ac.state === 'suspended') voice.ac.resume();
+  return voice.out;
+}
+function pidPlayer(pid) { return (net.players || []).find(p => p.pid === pid); }
+function setupCall(call) {
+  const pid = call.peer;
+  const old = voice.calls.get(pid);
+  if (old && old !== call) old.close();
+  voice.calls.set(pid, call);
+  call.on('stream', stream => {
+    let a = voice.audios.get(pid);
+    if (!a) { a = new Audio(); a.autoplay = true; voice.audios.set(pid, a); }
+    a.srcObject = stream;
+    a.play().catch(() => {});
+    applyVoiceMutes();
+  });
+  const drop = () => {
+    if (voice.calls.get(pid) !== call) return;
+    voice.calls.delete(pid);
+    const a = voice.audios.get(pid);
+    if (a) { a.srcObject = null; voice.audios.delete(pid); }
+  };
+  call.on('close', drop);
+  call.on('error', drop);
+}
+function onVoiceCall(call) {
+  // only people in my room
+  if (!pidPlayer(call.peer)) { call.close(); return; }
+  call.answer(voiceOut());
+  setupCall(call);
+}
+// call anyone in the room we aren't connected to yet (the lower peer id calls, so each pair makes one call)
+function syncVoice() {
+  if (!net.peer || !net.peer.id || !net.players) return;
+  for (const p of net.players) {
+    if (!p.pid || p.id === net.id || voice.calls.has(p.pid) || net.peer.id > p.pid) continue;
+    const call = net.peer.call(p.pid, voiceOut());
+    if (call) setupCall(call);
+  }
+  for (const [pid, call] of voice.calls) if (!pidPlayer(pid)) call.close();
+}
+function applyVoiceMutes() {
+  for (const [pid, a] of voice.audios) {
+    const p = pidPlayer(pid);
+    a.muted = !p || (net.mode === 'online' && p.team !== net.myTeam);
+    a.volume = voice.vol;
+  }
+}
+function setPtt(on) {
+  on = on && !!voice.micSrc;
+  if (on === voice.ptt) return;
+  voice.ptt = on;
+  if (voice.gain) voice.gain.gain.setTargetAtTime(on ? 1 : 0, voice.ac.currentTime, 0.02);
+  netSend({ t: 'talk', on });
+}
+async function toggleMic() {
+  if (voice.mic) {   // turn off
+    setPtt(false);
+    voice.micSrc.disconnect(); voice.micSrc = null;
+    for (const t of voice.mic.getTracks()) t.stop();
+    voice.mic = null;
+  } else {
+    try {
+      voiceOut();
+      voice.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      voice.micSrc = voice.ac.createMediaStreamSource(voice.mic);
+      voice.micSrc.connect(voice.gain);
+    } catch (e) {
+      voice.mic = null;
+      addChat({ id: 0, name: '알림', team: '', text: '마이크를 쓸 수 없어요 (브라우저에서 마이크 권한을 허용해 주세요)' });
+    }
+  }
+  for (const b of document.querySelectorAll('.mic-btn')) b.textContent = voice.mic ? '🎤 마이크 켜짐 · V로 말하기 (끄기)' : '🎤 마이크 켜기';
+}
+for (const b of document.querySelectorAll('.mic-btn')) b.onclick = toggleMic;
+document.addEventListener('keydown', e => { if (e.code === 'KeyV' && !e.repeat && !chat.open && document.activeElement !== chatInput) setPtt(true); });
+document.addEventListener('keyup', e => { if (e.code === 'KeyV') setPtt(false); });
+window.addEventListener('blur', () => setPtt(false));
+function voiceReset() {
+  setPtt(false);
+  for (const call of voice.calls.values()) call.close();
+  voice.calls.clear();
+  for (const a of voice.audios.values()) a.srcObject = null;
+  voice.audios.clear();
+  voice.talking.clear();
+}
+$('voice-slider').oninput = e => { voice.vol = +e.target.value; $('voice-val').textContent = Math.round(voice.vol * 100); applyVoiceMutes(); };
+// chat box, who's talking
+function updateChatVoice() {
+  const show = net.mode === 'lobby' || net.mode === 'online';
+  chatEl.classList.toggle('show', show);
+  chatEl.classList.toggle('lobby', net.mode === 'lobby');
+  if (!show && chat.open) closeChat();
+  applyVoiceMutes();
+  const names = [];
+  if (voice.ptt) names.push(['me', '🎤 나']);
+  for (const id of voice.talking) {
+    const r = net.remotes.get(id), p = (net.players || []).find(q => q.id === id);
+    const team = r ? r.team : p && p.team;
+    if (net.mode === 'online' && team !== net.myTeam) continue;
+    names.push(['', '🔊 ' + (p ? p.name : '?')]);
+  }
+  const html = names.map(([c, t]) => `<div class="${c}">${t.replace(/</g, '&lt;')}</div>`).join('');
+  if ($('voice-hud').innerHTML !== html) $('voice-hud').innerHTML = html;
+}
+
 // ── HUD helpers ──
 let bannerT = 0;
 function showBanner(html, secs = 2) { $('banner').innerHTML = html; $('banner').classList.add('show'); bannerT = secs; }
@@ -3030,6 +3239,7 @@ function onNetMessage(m) {
       if (net.mode === 'menu' || net.mode === 'lobby') enterLobby();
       if (net.mode === 'lobby') renderLobby();
       else syncRemotes();
+      syncVoice();
       break;
     case 'round':
       net.phase = m.phase; net.round = m.round; net.score = m.score; net.timer = m.timer;
@@ -3112,7 +3322,12 @@ function onNetMessage(m) {
         explodeBomb(m.p);
       }
       break;
+    case 'chat': addChat(m); break;
+    case 'talk':
+      if (m.on) voice.talking.add(m.id); else voice.talking.delete(m.id);
+      break;
     case 'left':
+      voice.talking.delete(m.id);
       net.players = net.players.filter(p => p.id !== m.id);
       if (net.remotes.has(m.id)) { addFeed(`${teamSpan(m.id)} 나감`); scene.remove(net.remotes.get(m.id).avatar); net.remotes.delete(m.id); syncRemotes(); }
       break;
@@ -3423,6 +3638,7 @@ function animate() {
   updateNet(dt);
   updateBomb(dt);
   drawMinimap();
+  updateChatVoice();
   renderer.clear();
   renderer.render(scene, camera);
   renderer.clearDepth();
