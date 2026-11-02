@@ -448,7 +448,7 @@ const SFX = (() => {
   const buffers = {};
   let volume = 0.7;
   const FILES = {
-    ak: 'ak47_near.wav', reload: 'ak_reload.wav', rack: 'ak_rack.wav', click: 'metalClick.ogg',
+    ak: 'ak47_near.wav', sniper: 'sniper_bang.mp3', reload: 'ak_reload.wav', rack: 'ak_rack.wav', click: 'metalClick.ogg',
     slice1: 'knifeSlice.ogg', slice2: 'knifeSlice2.ogg',
     draw1: 'drawKnife1.ogg', draw2: 'drawKnife2.ogg', draw3: 'drawKnife3.ogg',
     cloth1: 'cloth1.ogg', cloth2: 'cloth2.ogg',
@@ -1730,8 +1730,7 @@ function fireShotgun(barrels) {
 function fireSniper() {
   sr.ammo--;
   const G = GUNS.sniper;
-  SFX.play('shots', { vol: 1, rate: 0.52 });
-  SFX.tone(44, 0.45, 0.6, 0, 'sine');
+  SFX.play('sniper', { vol: 0.55, jitter: 0.02 });
   const spread = gunSpread('sniper');
   const r = spread * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
   const shot = castShot(Math.sin(a) * r, Math.cos(a) * r, G.range);
@@ -4088,7 +4087,8 @@ function onNetMessage(m) {
       r.avatar.userData.flashT = 0.05;
       if (Array.isArray(m.o) && Array.isArray(m.e)) addTracer(m.o, m.e);
       const dist = r.avatar.position.distanceTo(player.position);
-      SFX.play('shots', { vol: 0.5 * Math.max(0.12, 1 - dist / 70), jitter: 0.04 });
+      const sniperShot = r.avatar.userData.weapon === 'sniper';
+      SFX.play(sniperShot ? 'sniper' : 'shots', { vol: 0.5 * Math.max(0.12, 1 - dist / (sniperShot ? 120 : 70)), jitter: 0.04 });
       break;
     }
     case 'anim': {

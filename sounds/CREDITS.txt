@@ -14,3 +14,6 @@ footstep00-09.ogg, knifeSlice.ogg, knifeSlice2.ogg, drawKnife1-3.ogg, metalClick
   https://opengameart.org/content/50-rpg-sound-effects
 
 Hit marker, headshot and kill tones are generated in code (Web Audio).
+
+sniper_bang.mp3 (sniper shot)
+  "bang" by Dragon Studio (Pixabay, sound 487680), supplied by the project owner - Pixabay Content License
