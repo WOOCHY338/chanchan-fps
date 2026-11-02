@@ -101,6 +101,17 @@ canvas { display: block; width: 100vw; height: 100vh; }
   font-family: inherit; width: 150px;
 }
 #menu-error { color: #ff8a80; min-height: 18px; font-size: 14px; }
+#lobby-modes .btn { padding: 6px 12px; font-size: 13px; opacity: 0.55; }
+#lobby-modes .btn.on { opacity: 1; outline: 3px solid #fff; outline-offset: 1px; }
+#lobby-modes .btn:disabled { opacity: 0.3; } #lobby-modes .btn.on:disabled { opacity: 0.9; }
+#room-list { width: 480px; max-width: 92vw; max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+#room-list .room { display: flex; align-items: center; gap: 10px; background: #22252b; border: 2px solid #555; border-radius: 6px;
+  padding: 6px 10px; font-size: 14px; }
+#room-list .room .name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#room-list .room .tag { font-size: 12px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+#room-list .room .tag.elim { background: #6f9be6; color: #10203a; } #room-list .room .tag.bomb { background: #e07a72; color: #3a1210; }
+#room-list .room .btn { padding: 4px 12px; font-size: 13px; box-shadow: 2px 2px 0 #1a1410; }
+#room-list .empty { opacity: 0.55; font-size: 14px; text-align: center; padding: 6px; }
 #lobby-code { font-size: 46px; font-weight: 800; letter-spacing: 8px; font-family: monospace; }
 .teams { display: flex; gap: 18px; }
 .team-box { width: 200px; min-height: 120px; border-radius: 8px; padding: 12px; border: 2px solid #1a1410; }
@@ -200,15 +211,27 @@ canvas { display: block; width: 100vw; height: 100vh; }
     <button class="btn red" id="btn-bomb-2v2">방 만들기 · 2대2</button>
   </div>
   <div class="row">
-    <input id="code-input" class="field" maxlength="4" placeholder="방 코드" style="text-transform:uppercase;width:120px">
-    <button class="btn ghost" id="btn-join">참가</button>
+    <label class="sub" style="opacity:0.85;cursor:pointer"><input type="checkbox" id="public-check" checked> 일반방으로 열기 (누구나 목록에서 들어올 수 있어요)</label>
   </div>
+  <div class="row">
+    <button class="btn" id="btn-quick">빠른 참가</button>
+    <button class="btn ghost" id="btn-refresh">일반방 새로고침</button>
+    <input id="code-input" class="field" maxlength="4" placeholder="방 코드" style="text-transform:uppercase;width:110px">
+    <button class="btn ghost" id="btn-join">코드로 참가</button>
+  </div>
+  <div id="room-list"><div class="empty">일반방 목록을 불러오는 중…</div></div>
   <div id="menu-error"></div>
   <div class="sub">5점 먼저 내는 팀 승리 · 폭탄전은 매 라운드 공격/수비가 바뀌어요 · E 길게: 설치/해체</div>
 </div>
 
 <div id="lobby" class="overlay hidden">
   <div class="sub" id="lobby-mode">1대1</div>
+  <div class="row" id="lobby-modes">
+    <button class="btn blue" data-mode="1v1" data-type="elim">섬멸 1대1</button>
+    <button class="btn blue" data-mode="2v2" data-type="elim">섬멸 2대2</button>
+    <button class="btn red" data-mode="1v1" data-type="bomb">폭탄 1대1</button>
+    <button class="btn red" data-mode="2v2" data-type="bomb">폭탄 2대2</button>
+  </div>
   <div id="lobby-code">----</div>
   <div class="sub">친구에게 이 코드를 알려주세요</div>
   <div class="teams">
@@ -2428,7 +2451,7 @@ const makeRoomCode = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUV
 function createHostRoom(code, mode, type = 'elim') {
   const room = { code, mode, type, players: new Map(), host: 1, phase: 'lobby', round: 0, score: { blue: 0, red: 0 }, timer: 0, nextId: 1,
     attack: null, bomb: null };
-  const isBomb = type === 'bomb';
+  const isBomb = () => room.type === 'bomb';   // the host can switch modes in the lobby
   const sendTo = (p, msg) => { try { p.send(msg); } catch (e) { /* peer gone */ } };
   const broadcast = (msg, exceptId) => { for (const p of room.players.values()) if (p.id !== exceptId) sendTo(p, msg); };
   const teamOf = team => [...room.players.values()].filter(p => p.team === team);
@@ -2438,10 +2461,10 @@ function createHostRoom(code, mode, type = 'elim') {
   function startRound() {
     room.round += 1; room.phase = 'prestart'; room.timer = RULES.prestart;
     // bomb mode: blue attacks on odd rounds, red on even rounds
-    room.attack = isBomb ? (room.round % 2 ? 'blue' : 'red') : null;
+    room.attack = isBomb() ? (room.round % 2 ? 'blue' : 'red') : null;
     const spawns = {};
     for (const team of ['blue', 'red']) {
-      const list = isBomb ? BOMB_SPAWNS[team === room.attack ? 'attack' : 'defense'] : SPAWNS[team];
+      const list = isBomb() ? BOMB_SPAWNS[team === room.attack ? 'attack' : 'defense'] : SPAWNS[team];
       teamOf(team).forEach((p, i) => {
         const s = list[i % list.length];
         p.hp = 100; p.dead = false; p.act = null; p.actT = 0;
@@ -2449,12 +2472,12 @@ function createHostRoom(code, mode, type = 'elim') {
         spawns[p.id] = s;
       });
     }
-    if (isBomb) {
+    if (isBomb()) {
       const atk = teamOf(room.attack);
       room.bomb = { s: 'carried', c: atk[Math.floor(Math.random() * atk.length)].id, p: null };
     }
     broadcast({ t: 'round', phase: 'prestart', round: room.round, score: room.score, timer: room.timer, spawns,
-      type: room.type, map: isBomb ? 'bomb' : 'arena', attack: room.attack });
+      type: room.type, map: isBomb() ? 'bomb' : 'arena', attack: room.attack });
   }
   const defense = () => room.attack === 'blue' ? 'red' : 'blue';
   // the carrier died or left: the bomb falls where they stood
@@ -2478,7 +2501,7 @@ function createHostRoom(code, mode, type = 'elim') {
   function checkRoundOver() {
     if (room.phase !== 'live') return;
     const b = teamOf('blue').filter(p => !p.dead).length, r = teamOf('red').filter(p => !p.dead).length;
-    if (isBomb) {
+    if (isBomb()) {
       const alive = { blue: b, red: r };
       if (alive[defense()] === 0) endRound(room.attack, 'elim');                                   // defenders dead: attack wins
       else if (alive[room.attack] === 0 && room.bomb.s !== 'planted') endRound(defense(), 'elim');   // after the plant they must defuse
@@ -2523,9 +2546,9 @@ function createHostRoom(code, mode, type = 'elim') {
     if (room.phase === 'lobby') return;
     room.timer -= dt;
     if (room.phase === 'prestart' && room.timer <= 0) {
-      room.phase = 'live'; room.timer = isBomb ? BOMB.roundTime : RULES.roundTime;
+      room.phase = 'live'; room.timer = isBomb() ? BOMB.roundTime : RULES.roundTime;
       broadcast({ t: 'round', phase: 'live', round: room.round, score: room.score, timer: room.timer });
-    } else if (room.phase === 'live' && isBomb) {
+    } else if (room.phase === 'live' && isBomb()) {
       tickBomb(dt);
       if (room.phase === 'live' && room.timer <= 0) {
         if (room.bomb.s === 'planted') {
@@ -2581,6 +2604,20 @@ function createHostRoom(code, mode, type = 'elim') {
       return;
     }
     switch (m.t) {
+      case 'mode': {   // host switches 섬멸전/폭탄전 and 1대1/2대2 before starting
+        if (id !== room.host || room.phase !== 'lobby' || !MODES[m.mode] || (m.type !== 'elim' && m.type !== 'bomb')) return;
+        const joined = [...room.players.values()].filter(p => p.joined);
+        if (joined.length > MODES[m.mode] * 2) return sendTo(me, { t: 'error', msg: '인원이 많아서 1대1로 바꿀 수 없어요' });
+        room.mode = m.mode; room.type = m.type;
+        // too many on one side for the new size: move the extras across
+        const per = MODES[room.mode];
+        for (const team of ['blue', 'red']) {
+          const other = team === 'blue' ? 'red' : 'blue';
+          for (const p of teamOf(team).slice(per)) if (teamOf(other).length < per) p.team = other;
+        }
+        broadcast(lobbyInfo());
+        break;
+      }
       case 'team':
         if (room.phase === 'lobby' && (m.team === 'blue' || m.team === 'red') && teamOf(m.team).length < MODES[room.mode]) {
           me.team = m.team; broadcast(lobbyInfo());
@@ -2623,16 +2660,25 @@ function createHostRoom(code, mode, type = 'elim') {
   }
   let last = performance.now();
   const timer = setInterval(() => { const now = performance.now(); tick((now - last) / 1000); last = now; }, 50);
-  return { code, handle, addPlayer, leave, stop: () => clearInterval(timer) };
+  // summary for the 공방 list
+  const info = () => {
+    const h = room.players.get(room.host);
+    return { t: 'info', code: room.code, mode: room.mode, type: room.type, phase: room.phase, host: h ? h.name : '?',
+      players: [...room.players.values()].filter(p => p.joined).length, max: MODES[room.mode] * 2 };
+  };
+  return { code, handle, addPlayer, leave, info, stop: () => clearInterval(timer) };
 }
 
 // ── transports ──
 function netError(msg) {
   if (net.mode === 'lobby') $('lobby-msg').textContent = msg; else $('menu-error').textContent = msg;
 }
-function hostRoom(mode, type, attempt = 0) {
+// 공방 (public rooms) sit on fixed codes PB01..PB12, so the menu can list them by asking each code who's there
+const PUB_SLOTS = 12;
+const pubCode = i => 'PB' + String(i).padStart(2, '0');
+function hostRoom(mode, type, attempt = 0, pub = false) {
   if (typeof Peer === 'undefined') return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
-  const code = makeRoomCode();
+  const code = pub ? pubCode(attempt + 1) : makeRoomCode();
   const peer = new Peer(PEER_PREFIX + code, { debug: 0 });
   net.peer = peer;
   $('menu-error').textContent = '방 여는 중…';
@@ -2645,6 +2691,11 @@ function hostRoom(mode, type, attempt = 0) {
     $('menu-error').textContent = '';
     net.send({ t: 'create', name: playerName(), mode });
     peer.on('connection', conn => {
+      // someone's menu checking what this room is: answer and hang up, they don't join
+      if (conn.metadata && conn.metadata.probe) {
+        conn.on('open', () => { conn.send(room.info()); setTimeout(() => conn.close(), 500); });
+        return;
+      }
       conn.on('open', () => {
         const id = room.addPlayer(msg => conn.open && conn.send(msg));
         conn.on('data', m => room.handle(id, m));
@@ -2654,8 +2705,9 @@ function hostRoom(mode, type, attempt = 0) {
     });
   });
   peer.on('error', err => {
-    if (err.type === 'unavailable-id' && attempt < 5) { peer.destroy(); return hostRoom(mode, type, attempt + 1); }   // code taken: pick another
-    netError('방을 열 수 없어요 (' + err.type + ')');
+    // code taken: pick another (공방: the next free slot)
+    if (err.type === 'unavailable-id' && attempt < (pub ? PUB_SLOTS - 1 : 5)) { peer.destroy(); return hostRoom(mode, type, attempt + 1, pub); }
+    netError(pub && err.type === 'unavailable-id' ? '일반방 자리가 다 찼어요 (일반방 체크를 끄고 코드 방으로 만들어 주세요)' : '방을 열 수 없어요 (' + err.type + ')');
   });
   peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });   // keep the code reachable for late joiners
 }
@@ -2791,6 +2843,8 @@ function leaveOnline() {
   $('dead-msg').style.display = 'none';
   if (document.pointerLockElement) document.exitPointerLock();
   showOnly(menuEl);
+  net.quickNote = null;
+  refreshRooms();
 }
 function startOnlineMatch() {
   net.mode = 'online';
@@ -2802,7 +2856,97 @@ function startOnlineMatch() {
 }
 
 $('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
-const create = (mode, type) => { SFX.unlock(); closeTransport(); $('menu-error').textContent = ''; hostRoom(mode, type); };
+let lastCreate = { mode: '1v1', type: 'elim' };
+try { lastCreate = JSON.parse(localStorage.getItem('lastCreate')) || lastCreate; } catch (e) { /* storage blocked */ }
+const create = (mode, type) => {
+  SFX.unlock(); closeTransport(); $('menu-error').textContent = '';
+  lastCreate = { mode, type };
+  try { localStorage.setItem('lastCreate', JSON.stringify(lastCreate)); } catch (e) { /* storage blocked */ }
+  hostRoom(mode, type, 0, $('public-check').checked);
+};
+
+// ask every 공방 slot who's there; empty slots report peer-unavailable (or time out)
+let scanning = null;
+function scanPublicRooms() {
+  if (scanning) return scanning;
+  scanning = new Promise(resolve => {
+    if (typeof Peer === 'undefined') return resolve(null);
+    const peer = new Peer({ debug: 0 });
+    const found = [], settle = {};
+    let left = PUB_SLOTS, done = false;
+    const finish = () => { if (done) return; done = true; peer.destroy(); resolve(found.sort((a, b) => a.code.localeCompare(b.code))); };
+    peer.on('open', () => {
+      for (let i = 1; i <= PUB_SLOTS; i++) {
+        const code = pubCode(i);
+        let settled = false;
+        settle[code] = () => { if (settled) return; settled = true; if (--left === 0) finish(); };
+        const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json', metadata: { probe: true } });
+        conn.on('data', m => { if (m && m.t === 'info') found.push(m); settle[code](); conn.close(); });
+        conn.on('error', () => settle[code]());
+        setTimeout(() => settle[code](), 4000);
+      }
+    });
+    peer.on('error', err => {
+      const m = /PB\d\d/.exec(err.message || '');
+      if (err.type === 'peer-unavailable' && m && settle[m[0]]) settle[m[0]]();
+      else if (err.type !== 'peer-unavailable') finish();
+    });
+    setTimeout(finish, 7000);
+  }).finally(() => { scanning = null; });
+  return scanning;
+}
+const joinable = r => r.phase === 'lobby' && r.players < r.max;
+function renderRoomList(rooms) {
+  const list = $('room-list');
+  list.innerHTML = '';
+  if (!rooms || !rooms.length) {
+    const e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = rooms ? '열린 일반방이 없어요 · 방을 만들거나 빠른 참가를 눌러 보세요' : '목록을 불러오지 못했어요 (인터넷 확인)';
+    list.appendChild(e);
+    return;
+  }
+  for (const r of rooms) {
+    const row = document.createElement('div');
+    row.className = 'room';
+    const tag = document.createElement('span');
+    tag.className = 'tag ' + r.type;
+    tag.textContent = (r.type === 'bomb' ? '폭탄전 ' : '섬멸전 ') + (r.mode === '2v2' ? '2대2' : '1대1');
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = r.host + '의 방';
+    const count = document.createElement('span');
+    count.textContent = `${r.players}/${r.max}` + (r.phase !== 'lobby' ? ' · 경기 중' : '');
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = '참가';
+    btn.disabled = !joinable(r);
+    btn.onclick = () => { SFX.unlock(); closeTransport(); $('menu-error').textContent = ''; joinRoom(r.code); };
+    row.append(tag, name, count, btn);
+    list.appendChild(row);
+  }
+}
+async function refreshRooms() {
+  $('btn-refresh').disabled = true;
+  const rooms = await scanPublicRooms();
+  $('btn-refresh').disabled = false;
+  if (net.mode === 'menu') renderRoomList(rooms);
+  return rooms;
+}
+$('btn-refresh').onclick = () => { $('room-list').innerHTML = '<div class="empty">찾는 중…</div>'; refreshRooms(); };
+// 빠른 참가: the fullest open 공방, or open one yourself (last mode you made) and wait there
+$('btn-quick').onclick = async () => {
+  SFX.unlock(); closeTransport();
+  $('menu-error').textContent = '열린 일반방 찾는 중…';
+  const rooms = await refreshRooms();
+  if (net.mode !== 'menu') return;
+  if (rooms === null) return netError('일반방 목록을 불러오지 못했어요 (인터넷 확인)');
+  const open = rooms.filter(joinable).sort((a, b) => b.players - a.players)[0];
+  $('menu-error').textContent = '';
+  if (open) joinRoom(open.code);
+  else { net.quickNote = '열린 일반방이 없어서 새 일반방을 열었어요 · 누가 들어올 때까지 기다려 주세요'; hostRoom(lastCreate.mode, lastCreate.type, 0, true); }
+};
+refreshRooms();
 $('btn-create-1v1').onclick = () => create('1v1', 'elim');
 $('btn-create-2v2').onclick = () => create('2v2', 'elim');
 $('btn-bomb-1v1').onclick = () => create('1v1', 'bomb');
@@ -2817,6 +2961,7 @@ $('btn-join').onclick = () => {
 };
 $('btn-start').onclick = () => netSend({ t: 'start' });
 $('btn-swap').onclick = () => netSend({ t: 'team', team: net.myTeam === 'blue' ? 'red' : 'blue' });
+for (const b of document.querySelectorAll('#lobby-modes .btn')) b.onclick = () => netSend({ t: 'mode', mode: b.dataset.mode, type: b.dataset.type });
 $('btn-leave').onclick = leaveOnline;
 $('btn-to-menu').onclick = () => {
   $('settings-panel').classList.remove('visible');
@@ -2826,7 +2971,8 @@ $('btn-to-menu').onclick = () => {
 
 function renderLobby() {
   $('lobby-code').textContent = net.room;
-  $('lobby-mode').textContent = (net.roomType === 'bomb' ? '폭탄전 · ' : '섬멸전 · ') + (net.roomMode === '2v2' ? '2대2' : '1대1');
+  $('lobby-mode').textContent = (net.roomType === 'bomb' ? '폭탄전 · ' : '섬멸전 · ') + (net.roomMode === '2v2' ? '2대2' : '1대1')
+    + (/^PB\d\d$/.test(net.room) ? ' · 일반' : '');
   for (const team of ['blue', 'red']) {
     $('lobby-' + team).innerHTML = '';
     for (const p of net.players.filter(q => q.team === team)) {
@@ -2837,7 +2983,12 @@ function renderLobby() {
   }
   const isHost = net.host === net.id;
   $('btn-start').disabled = !isHost;
-  $('lobby-msg').textContent = isHost ? '양 팀에 1명 이상 있으면 시작할 수 있어요' : '방장이 시작하길 기다리는 중…';
+  for (const b of document.querySelectorAll('#lobby-modes .btn')) {
+    b.classList.toggle('on', b.dataset.mode === net.roomMode && b.dataset.type === net.roomType);
+    b.disabled = !isHost;
+  }
+  $('lobby-msg').textContent = net.quickNote || (isHost ? '양 팀에 1명 이상 있으면 시작할 수 있어요' : '방장이 시작하길 기다리는 중…');
+  if (net.players.length > 1) net.quickNote = null;
 }
 
 // ── HUD helpers ──
