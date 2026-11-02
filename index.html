@@ -226,13 +226,11 @@ canvas { display: block; width: 100vw; height: 100vh; }
   </div>
   <div class="row">
     <span class="sub" style="width:64px">섬멸전</span>
-    <button class="btn blue" id="btn-create-1v1">방 만들기 · 1대1</button>
-    <button class="btn blue" id="btn-create-2v2">방 만들기 · 2대2</button>
+    <button class="btn blue" id="btn-create-elim">방 만들기</button>
   </div>
   <div class="row">
     <span class="sub" style="width:64px">폭탄전</span>
-    <button class="btn red" id="btn-bomb-1v1">방 만들기 · 1대1</button>
-    <button class="btn red" id="btn-bomb-2v2">방 만들기 · 2대2</button>
+    <button class="btn red" id="btn-create-bomb">방 만들기</button>
   </div>
   <div class="row">
     <label class="sub" style="opacity:0.85;cursor:pointer"><input type="checkbox" id="public-check" checked> 일반방으로 열기 (누구나 목록에서 들어올 수 있어요)</label>
@@ -249,12 +247,10 @@ canvas { display: block; width: 100vw; height: 100vh; }
 </div>
 
 <div id="lobby" class="overlay hidden">
-  <div class="sub" id="lobby-mode">1대1</div>
+  <div class="sub" id="lobby-mode">섬멸전</div>
   <div class="row" id="lobby-modes">
-    <button class="btn blue" data-mode="1v1" data-type="elim">섬멸 1대1</button>
-    <button class="btn blue" data-mode="2v2" data-type="elim">섬멸 2대2</button>
-    <button class="btn red" data-mode="1v1" data-type="bomb">폭탄 1대1</button>
-    <button class="btn red" data-mode="2v2" data-type="bomb">폭탄 2대2</button>
+    <button class="btn blue" data-type="elim">섬멸전</button>
+    <button class="btn red" data-type="bomb">폭탄전</button>
   </div>
   <div id="lobby-code">----</div>
   <div class="sub">친구에게 이 코드를 알려주세요</div>
@@ -1500,10 +1496,9 @@ const KNIFE_ANIMS = {
       { t: 0.57, at: [0.55, 0.7, 0.5], r: K_LOWER1 },
       { t: 0.67, at: [0.57, 0.8, 0.5], r: K_LOWER2 },
       { t: 0.73, ...K_IDLE }] },
-  // ref 9.47-11.19s: rise and spin over the top, lunge up-left point-away (hit) and hold with the off hand showing,
-  // drop out of view, come back from the bottom-left, whip through left, hold upright, settle
-  heavy: { dur: 1.72, hitAt: 0.22, ease: 'linear', range: KNIFE.heavyRange, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
-    trail: { at: [0.5, 0.47, 0.75], start: 2.2, len: 2.6, r0: 0.06, r1: 0.1 },
+  // ref 9.47-9.8s: rise and spin over the top, lunge point-away onto the crosshair (hit), a short hold,
+  // then pull straight back into the idle grip
+  heavy: { dur: 0.65, hitAt: 0.22, ease: 'linear', range: KNIFE.heavyRange, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
     keys: [{ t: 0, ...K_IDLE },
       { t: 0.03, at: [0.55, 0.45, 0.48], r: [0, 0, 0.9] },
       { t: 0.06, at: [0.6, 0.35, 0.5], r: [0, 0, 1.57] },
@@ -1512,19 +1507,9 @@ const KNIFE_ANIMS = {
       { t: 0.17, at: [0.8, 0.0, 0.5], r: [0, 0, 1.57] },
       // stab lands on the crosshair: hand just above center, blade driven straight away and slightly down
       { t: 0.22, at: [0.5, 0.43, 0.72], r: [-1.85, 0, 0], la: [0.06, 0.95, 0.42] },
-      { t: 0.8, at: [0.5, 0.44, 0.72], r: [-1.82, 0, 0.02], la: [0.06, 0.95, 0.42] },
-      { t: 0.83, at: [0.5, 0.5, 0.65], r: [0, 0, 1.57], la: [0.06, 0.97, 0.42] },
-      { t: 0.87, at: [0.55, 0.78, 0.5], r: [0, 0, 1.57] },
-      { t: 0.93, at: [0.55, 1.35, 0.5], r: [0.4, 0, 1.2] },
-      { t: 1.15, at: [0.3, 1.1, 0.5], r: [0, 0, 2.9] },
-      { t: 1.2, at: [0.6, 0.7, 0.5], r: [0, 0, 2.0] },
-      { t: 1.23, at: [0.6, 0.55, 0.5], r: [0, 0, 1.57] },
-      { t: 1.26, at: [0.6, 0.55, 0.5], r: [0, 0.3, 0.8] },
-      { t: 1.3, at: [0.55, 0.6, 0.5], r: [-0.2, 0.8, 0.15] },
-      { t: 1.45, at: [0.55, 0.62, 0.5], r: K_RAISED },
-      { t: 1.55, at: [0.55, 0.7, 0.5], r: K_LOWER1 },
-      { t: 1.65, at: [0.57, 0.8, 0.5], r: K_LOWER2 },
-      { t: 1.72, ...K_IDLE }] },
+      { t: 0.34, at: [0.5, 0.44, 0.72], r: [-1.82, 0, 0.02], la: [0.06, 0.95, 0.42] },
+      { t: 0.48, at: [0.55, 0.66, 0.58], r: [-0.85, -0.08, 0.75] },
+      { t: 0.65, ...K_IDLE }] },
   // 자세히 보기, ref 0.25-2.98s: swing up to vertical (edge-on, tipped away) and hold, tip into the flat pointing left
   // (spine up) and hold, twist up to the up-left diagonal and hold, lower to idle
   inspect: { dur: 2.73,
@@ -2501,7 +2486,7 @@ function update(dt) {
     `FPS: ${fps} | Pos: ${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)} | Grounded: ${player.isGrounded}`;
 }
 
-// ── ONLINE MATCH (1v1 / 2v2, first to 5) ── server.js owns rounds, HP and deaths; this client sends its
+// ── ONLINE MATCH (up to 5v5, first to 5) ── server.js owns rounds, HP and deaths; this client sends its
 // own movement/shots, reports hits on others, and draws everyone else from 20 Hz snapshots.
 const net = {
   peer: null, conn: null, hostRoom: null, send: null,   // P2P transport (see hostRoom / joinRoom)
@@ -2533,16 +2518,17 @@ function showOnly(el) {
 // to it directly with WebRTC. PeerJS's free public broker is only used so players can find each other by code.
 const PEER_PREFIX = 'chanchan-fps-v1-';
 const RULES = { winScore: 5, prestart: 3, roundTime: 100, post: 3, maxHit: 150 };
-const MODES = { '1v1': 1, '2v2': 2 };   // players per team
+const MODES = { '5v5': 5 };   // players per team (one room size; any split from 1v1 up to 5v5 can start)
+const ROOM_MODE = '5v5';
 const SPAWNS = {
-  blue: [[-3, -24, 0], [3, -24, 0]],     // [x, z, yaw°]; yaw 0 faces +z
-  red: [[3, 24, 180], [-3, 24, 180]],
+  blue: [[-3, -24, 0], [3, -24, 0], [0, -25, 0], [-6, -25, 0], [6, -25, 0]],     // [x, z, yaw°]; yaw 0 faces +z
+  red: [[3, 24, 180], [-3, 24, 180], [0, 25, 180], [6, 25, 180], [-6, 25, 180]],
 };
 // 폭탄전 (Wingman-style): sides swap every round, first to 5 still wins
 const BOMB = { roundTime: 60, fuse: 35, plantTime: 3, defuseTime: 5, defuseRange: 2.2, pickupRange: 1.4 };
 const BOMB_SPAWNS = {
-  attack: [[-2, -21, 0], [2, -21, 0]],
-  defense: [[-2, 21.5, 180], [2, 21.5, 180]],
+  attack: [[-2, -21, 0], [2, -21, 0], [0, -22.5, 0], [-4.5, -22, 0], [4.5, -22, 0]],
+  defense: [[-2, 21.5, 180], [2, 21.5, 180], [0, 23, 180], [-4.5, 22, 180], [4.5, 22, 180]],
 };
 // which site (if any) a position is inside
 const inSite = (x, z) => (BOMB_SITES.find(st => Math.abs(x - st.x) <= st.hw + 0.3 && Math.abs(z - st.z) <= st.hd + 0.3) || {}).name || null;
@@ -2718,20 +2704,11 @@ function createHostRoom(code, mode, type = 'elim') {
       case 'talk':     // push-to-talk indicator
         broadcast({ t: 'talk', id, on: !!m.on, all: !!m.all }, id);
         break;
-      case 'mode': {   // host switches 섬멸전/폭탄전 and 1대1/2대2 before starting
-        if (id !== room.host || room.phase !== 'lobby' || !MODES[m.mode] || (m.type !== 'elim' && m.type !== 'bomb')) return;
-        const joined = [...room.players.values()].filter(p => p.joined);
-        if (joined.length > MODES[m.mode] * 2) return sendTo(me, { t: 'error', msg: '인원이 많아서 1대1로 바꿀 수 없어요' });
-        room.mode = m.mode; room.type = m.type;
-        // too many on one side for the new size: move the extras across
-        const per = MODES[room.mode];
-        for (const team of ['blue', 'red']) {
-          const other = team === 'blue' ? 'red' : 'blue';
-          for (const p of teamOf(team).slice(per)) if (teamOf(other).length < per) p.team = other;
-        }
+      case 'mode':     // host switches 섬멸전/폭탄전 before starting
+        if (id !== room.host || room.phase !== 'lobby' || (m.type !== 'elim' && m.type !== 'bomb')) return;
+        room.type = m.type;
         broadcast(lobbyInfo());
         break;
-      }
       case 'team':
         if (room.phase === 'lobby' && (m.team === 'blue' || m.team === 'red') && teamOf(m.team).length < MODES[room.mode]) {
           me.team = m.team; broadcast(lobbyInfo());
@@ -2938,6 +2915,7 @@ function startPractice() {
 function enterLobby() {
   net.mode = 'lobby';
   showOnly(lobbyEl);
+  startScreen.classList.add('hidden');   // the match's "클릭해서 계속" would show through the lobby
   if (document.pointerLockElement) document.exitPointerLock();
   $('scorebar').classList.remove('show');
   $('dead-msg').style.display = 'none';
@@ -2960,6 +2938,7 @@ function leaveOnline() {
   $('scorebar').classList.remove('show');
   $('dead-msg').style.display = 'none';
   if (document.pointerLockElement) document.exitPointerLock();
+  startScreen.classList.add('hidden');
   showOnly(menuEl);
   net.quickNote = null;
   refreshRooms();
@@ -2980,13 +2959,13 @@ $('auto-fs').onchange = e => {
   try { localStorage.setItem('autoFullscreen', autoFullscreen ? '1' : '0'); } catch (err) { /* storage blocked */ }
   if (!autoFullscreen) leaveGameFullscreen();
 };
-let lastCreate = { mode: '1v1', type: 'elim' };
-try { lastCreate = JSON.parse(localStorage.getItem('lastCreate')) || lastCreate; } catch (e) { /* storage blocked */ }
-const create = (mode, type) => {
+let lastType = 'elim';
+try { lastType = localStorage.getItem('lastType') === 'bomb' ? 'bomb' : 'elim'; } catch (e) { /* storage blocked */ }
+const create = type => {
   SFX.unlock(); voiceCtx(); closeTransport(); $('menu-error').textContent = '';
-  lastCreate = { mode, type };
-  try { localStorage.setItem('lastCreate', JSON.stringify(lastCreate)); } catch (e) { /* storage blocked */ }
-  hostRoom(mode, type, 0, $('public-check').checked);
+  lastType = type;
+  try { localStorage.setItem('lastType', type); } catch (e) { /* storage blocked */ }
+  hostRoom(ROOM_MODE, type, 0, $('public-check').checked);
 };
 
 // ask every 공방 slot who's there; empty slots report peer-unavailable (or time out)
@@ -3035,7 +3014,7 @@ function renderRoomList(rooms) {
     row.className = 'room';
     const tag = document.createElement('span');
     tag.className = 'tag ' + r.type;
-    tag.textContent = (r.type === 'bomb' ? '폭탄전 ' : '섬멸전 ') + (r.mode === '2v2' ? '2대2' : '1대1');
+    tag.textContent = r.type === 'bomb' ? '폭탄전' : '섬멸전';
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = r.host + '의 방';
@@ -3068,13 +3047,11 @@ $('btn-quick').onclick = async () => {
   const open = rooms.filter(joinable).sort((a, b) => b.players - a.players)[0];
   $('menu-error').textContent = '';
   if (open) joinRoom(open.code);
-  else { net.quickNote = '열린 일반방이 없어서 새 일반방을 열었어요 · 누가 들어올 때까지 기다려 주세요'; hostRoom(lastCreate.mode, lastCreate.type, 0, true); }
+  else { net.quickNote = '열린 일반방이 없어서 새 일반방을 열었어요 · 누가 들어올 때까지 기다려 주세요'; hostRoom(ROOM_MODE, lastType, 0, true); }
 };
 refreshRooms();
-$('btn-create-1v1').onclick = () => create('1v1', 'elim');
-$('btn-create-2v2').onclick = () => create('2v2', 'elim');
-$('btn-bomb-1v1').onclick = () => create('1v1', 'bomb');
-$('btn-bomb-2v2').onclick = () => create('2v2', 'bomb');
+$('btn-create-elim').onclick = () => create('elim');
+$('btn-create-bomb').onclick = () => create('bomb');
 $('btn-join').onclick = () => {
   SFX.unlock();
   $('menu-error').textContent = '';
@@ -3085,7 +3062,7 @@ $('btn-join').onclick = () => {
 };
 $('btn-start').onclick = () => netSend({ t: 'start' });
 $('btn-swap').onclick = () => netSend({ t: 'team', team: net.myTeam === 'blue' ? 'red' : 'blue' });
-for (const b of document.querySelectorAll('#lobby-modes .btn')) b.onclick = () => netSend({ t: 'mode', mode: b.dataset.mode, type: b.dataset.type });
+for (const b of document.querySelectorAll('#lobby-modes .btn')) b.onclick = () => netSend({ t: 'mode', type: b.dataset.type });
 $('btn-leave').onclick = leaveOnline;
 $('btn-to-menu').onclick = () => {
   $('settings-panel').classList.remove('visible');
@@ -3095,7 +3072,7 @@ $('btn-to-menu').onclick = () => {
 
 function renderLobby() {
   $('lobby-code').textContent = net.room;
-  $('lobby-mode').textContent = (net.roomType === 'bomb' ? '폭탄전 · ' : '섬멸전 · ') + (net.roomMode === '2v2' ? '2대2' : '1대1')
+  $('lobby-mode').textContent = (net.roomType === 'bomb' ? '폭탄전' : '섬멸전') + ` · ${net.players.length}/10명`
     + (/^PB\d\d$/.test(net.room) ? ' · 일반' : '');
   for (const team of ['blue', 'red']) {
     $('lobby-' + team).innerHTML = '';
@@ -3108,7 +3085,7 @@ function renderLobby() {
   const isHost = net.host === net.id;
   $('btn-start').disabled = !isHost;
   for (const b of document.querySelectorAll('#lobby-modes .btn')) {
-    b.classList.toggle('on', b.dataset.mode === net.roomMode && b.dataset.type === net.roomType);
+    b.classList.toggle('on', b.dataset.type === net.roomType);
     b.disabled = !isHost;
   }
   $('lobby-msg').textContent = net.quickNote || (isHost ? '양 팀에 1명 이상 있으면 시작할 수 있어요' : '방장이 시작하길 기다리는 중…');
