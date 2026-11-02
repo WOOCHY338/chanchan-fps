@@ -267,7 +267,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
     <button class="btn ghost" id="btn-leave">나가기</button>
   </div>
   <div id="lobby-msg" class="sub"></div>
-  <div class="row"><button class="btn ghost mic-btn">🎤 마이크 켜기</button><span class="sub">마이크를 켜면 V를 누르고 있는 동안 말해요 · 경기 중엔 팀에게만 들려요</span></div>
+  <div class="row"><button class="btn ghost mic-btn">🎤 마이크 켜기</button><span class="sub">마이크를 켜면 누르고 있는 동안 말해요 · 경기 중엔 V 팀, U 전체</span></div>
 </div>
 
 <div id="scorebar"><span class="s blue" id="score-blue">0</span><div class="mid"><b id="round-timer">1:40</b><span id="round-label">ROUND 1</span></div><span class="s red" id="score-red">0</span></div>
@@ -2641,7 +2641,7 @@ function createHostRoom(code, mode, type = 'elim') {
         break;
       }
       case 'talk':     // push-to-talk indicator
-        broadcast({ t: 'talk', id, on: !!m.on }, id);
+        broadcast({ t: 'talk', id, on: !!m.on, all: !!m.all }, id);
         break;
       case 'mode': {   // host switches 섬멸전/폭탄전 and 1대1/2대2 before starting
         if (id !== room.host || room.phase !== 'lobby' || !MODES[m.mode] || (m.type !== 'elim' && m.type !== 'bomb')) return;
@@ -2901,7 +2901,7 @@ $('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
 let lastCreate = { mode: '1v1', type: 'elim' };
 try { lastCreate = JSON.parse(localStorage.getItem('lastCreate')) || lastCreate; } catch (e) { /* storage blocked */ }
 const create = (mode, type) => {
-  SFX.unlock(); voiceOut(); closeTransport(); $('menu-error').textContent = '';
+  SFX.unlock(); voiceCtx(); closeTransport(); $('menu-error').textContent = '';
   lastCreate = { mode, type };
   try { localStorage.setItem('lastCreate', JSON.stringify(lastCreate)); } catch (e) { /* storage blocked */ }
   hostRoom(mode, type, 0, $('public-check').checked);
@@ -3082,20 +3082,32 @@ document.addEventListener('keydown', e => {
 });
 
 // ── VOICE ── everyone calls everyone directly (PeerJS media calls; the room tells us each player's peer id).
-// The outgoing stream always exists (silent); turning the mic on plugs it in, and V opens it while held.
-// In the lobby everyone hears everyone; during a match only your team.
-const voice = { ac: null, gain: null, out: null, mic: null, micSrc: null, calls: new Map(), audios: new Map(), talking: new Set(), ptt: false, vol: 1 };
-function voiceOut() {
-  if (!voice.out) {
+// Each call gets its own outgoing stream: mic → bus → one gate per listener. Holding a talk key opens the gates
+// of whoever should hear it, so team talk is never even sent to the other team.
+//   lobby: V or U → everyone · match: V → your team, U → everyone
+const voice = { ac: null, bus: null, links: new Map(), mic: null, micSrc: null, calls: new Map(), audios: new Map(),
+  talking: new Map(), ptt: null, vol: 1 };
+function voiceCtx() {
+  if (!voice.ac) {
     voice.ac = new (window.AudioContext || window.webkitAudioContext)();
-    const dest = voice.ac.createMediaStreamDestination();
-    voice.gain = voice.ac.createGain();
-    voice.gain.gain.value = 0;
-    voice.gain.connect(dest);
-    voice.out = dest.stream;
+    voice.bus = voice.ac.createGain();
   }
   if (voice.ac.state === 'suspended') voice.ac.resume();
-  return voice.out;
+  return voice.ac;
+}
+// outgoing stream for one listener (silent until a talk key opens its gate)
+function voiceOut(pid) {
+  voiceCtx();
+  let link = voice.links.get(pid);
+  if (!link) {
+    const gate = voice.ac.createGain(), dest = voice.ac.createMediaStreamDestination();
+    gate.gain.value = 0;
+    voice.bus.connect(gate);
+    gate.connect(dest);
+    link = { gate, dest, open: 0 };
+    voice.links.set(pid, link);
+  }
+  return link.dest.stream;
 }
 function pidPlayer(pid) { return (net.players || []).find(p => p.pid === pid); }
 function setupCall(call) {
@@ -3107,14 +3119,16 @@ function setupCall(call) {
     let a = voice.audios.get(pid);
     if (!a) { a = new Audio(); a.autoplay = true; voice.audios.set(pid, a); }
     a.srcObject = stream;
+    a.volume = voice.vol;
     a.play().catch(() => {});
-    applyVoiceMutes();
   });
   const drop = () => {
     if (voice.calls.get(pid) !== call) return;
     voice.calls.delete(pid);
     const a = voice.audios.get(pid);
     if (a) { a.srcObject = null; voice.audios.delete(pid); }
+    const link = voice.links.get(pid);
+    if (link) { link.gate.disconnect(); voice.links.delete(pid); }
   };
   call.on('close', drop);
   call.on('error', drop);
@@ -3122,7 +3136,7 @@ function setupCall(call) {
 function onVoiceCall(call) {
   // only people in my room
   if (!pidPlayer(call.peer)) { call.close(); return; }
-  call.answer(voiceOut());
+  call.answer(voiceOut(call.peer));
   setupCall(call);
 }
 // call anyone in the room we aren't connected to yet (the lower peer id calls, so each pair makes one call)
@@ -3130,71 +3144,86 @@ function syncVoice() {
   if (!net.peer || !net.peer.id || !net.players) return;
   for (const p of net.players) {
     if (!p.pid || p.id === net.id || voice.calls.has(p.pid) || net.peer.id > p.pid) continue;
-    const call = net.peer.call(p.pid, voiceOut());
+    const call = net.peer.call(p.pid, voiceOut(p.pid));
     if (call) setupCall(call);
   }
   for (const [pid, call] of voice.calls) if (!pidPlayer(pid)) call.close();
 }
-function applyVoiceMutes() {
-  for (const [pid, a] of voice.audios) {
-    const p = pidPlayer(pid);
-    a.muted = !p || (net.mode === 'online' && p.team !== net.myTeam);
-    a.volume = voice.vol;
-  }
+// does this listener hear me in this talk mode
+function hearsMe(pid, mode) {
+  if (!mode) return false;
+  if (net.mode !== 'online' || mode === 'all') return true;
+  const p = pidPlayer(pid);
+  return !!p && p.team === net.myTeam;
 }
-function setPtt(on) {
-  on = on && !!voice.micSrc;
-  if (on === voice.ptt) return;
-  voice.ptt = on;
-  if (voice.gain) voice.gain.gain.setTargetAtTime(on ? 1 : 0, voice.ac.currentTime, 0.02);
-  netSend({ t: 'talk', on });
+function applyVoiceGates() {
+  if (!voice.ac) return;
+  for (const [pid, link] of voice.links) {
+    const want = hearsMe(pid, voice.ptt) ? 1 : 0;
+    if (link.open !== want) { link.open = want; link.gate.gain.setTargetAtTime(want, voice.ac.currentTime, 0.02); }
+  }
+  for (const a of voice.audios.values()) a.volume = voice.vol;
+}
+// mode: null (stop), 'team' (V) or 'all' (U)
+function setPtt(mode) {
+  if (!voice.micSrc) mode = null;
+  if (mode === voice.ptt) return;
+  voice.ptt = mode;
+  applyVoiceGates();
+  netSend({ t: 'talk', on: !!mode, all: mode === 'all' || net.mode !== 'online' });
 }
 async function toggleMic() {
   if (voice.mic) {   // turn off
-    setPtt(false);
+    setPtt(null);
     voice.micSrc.disconnect(); voice.micSrc = null;
     for (const t of voice.mic.getTracks()) t.stop();
     voice.mic = null;
   } else {
     try {
-      voiceOut();
+      voiceCtx();
       voice.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       voice.micSrc = voice.ac.createMediaStreamSource(voice.mic);
-      voice.micSrc.connect(voice.gain);
+      voice.micSrc.connect(voice.bus);
     } catch (e) {
       voice.mic = null;
       addChat({ id: 0, name: '알림', team: '', text: '마이크를 쓸 수 없어요 (브라우저에서 마이크 권한을 허용해 주세요)' });
     }
   }
-  for (const b of document.querySelectorAll('.mic-btn')) b.textContent = voice.mic ? '🎤 마이크 켜짐 · V로 말하기 (끄기)' : '🎤 마이크 켜기';
+  for (const b of document.querySelectorAll('.mic-btn')) b.textContent = voice.mic ? '🎤 마이크 켜짐 · V 팀 / U 전체 (끄기)' : '🎤 마이크 켜기';
 }
 for (const b of document.querySelectorAll('.mic-btn')) b.onclick = toggleMic;
-document.addEventListener('keydown', e => { if (e.code === 'KeyV' && !e.repeat && !chat.open && document.activeElement !== chatInput) setPtt(true); });
-document.addEventListener('keyup', e => { if (e.code === 'KeyV') setPtt(false); });
-window.addEventListener('blur', () => setPtt(false));
+const TALK_KEYS = { KeyV: 'team', KeyU: 'all' };
+document.addEventListener('keydown', e => {
+  if (TALK_KEYS[e.code] && !e.repeat && !chat.open && document.activeElement !== chatInput) setPtt(TALK_KEYS[e.code]);
+});
+document.addEventListener('keyup', e => { if (TALK_KEYS[e.code] && voice.ptt === TALK_KEYS[e.code]) setPtt(null); });
+window.addEventListener('blur', () => setPtt(null));
 function voiceReset() {
-  setPtt(false);
+  setPtt(null);
   for (const call of voice.calls.values()) call.close();
   voice.calls.clear();
   for (const a of voice.audios.values()) a.srcObject = null;
   voice.audios.clear();
+  for (const link of voice.links.values()) link.gate.disconnect();
+  voice.links.clear();
   voice.talking.clear();
 }
-$('voice-slider').oninput = e => { voice.vol = +e.target.value; $('voice-val').textContent = Math.round(voice.vol * 100); applyVoiceMutes(); };
+$('voice-slider').oninput = e => { voice.vol = +e.target.value; $('voice-val').textContent = Math.round(voice.vol * 100); applyVoiceGates(); };
 // chat box, who's talking
 function updateChatVoice() {
   const show = net.mode === 'lobby' || net.mode === 'online';
   chatEl.classList.toggle('show', show);
   chatEl.classList.toggle('lobby', net.mode === 'lobby');
   if (!show && chat.open) closeChat();
-  applyVoiceMutes();
+  if (voice.ptt) applyVoiceGates();   // teams can change while a key is held
+  const match = net.mode === 'online';
   const names = [];
-  if (voice.ptt) names.push(['me', '🎤 나']);
-  for (const id of voice.talking) {
+  if (voice.ptt) names.push(['me', '🎤 나' + (match ? (voice.ptt === 'all' ? ' (전체)' : ' (팀)') : '')]);
+  for (const [id, all] of voice.talking) {
     const r = net.remotes.get(id), p = (net.players || []).find(q => q.id === id);
     const team = r ? r.team : p && p.team;
-    if (net.mode === 'online' && team !== net.myTeam) continue;
-    names.push(['', '🔊 ' + (p ? p.name : '?')]);
+    if (match && team !== net.myTeam && !all) continue;   // (their team talk never reaches us anyway)
+    names.push(['', '🔊 ' + (p ? p.name : '?') + (match && all ? ' (전체)' : '')]);
   }
   const html = names.map(([c, t]) => `<div class="${c}">${t.replace(/</g, '&lt;')}</div>`).join('');
   if ($('voice-hud').innerHTML !== html) $('voice-hud').innerHTML = html;
@@ -3324,7 +3353,7 @@ function onNetMessage(m) {
       break;
     case 'chat': addChat(m); break;
     case 'talk':
-      if (m.on) voice.talking.add(m.id); else voice.talking.delete(m.id);
+      if (m.on) voice.talking.set(m.id, !!m.all); else voice.talking.delete(m.id);
       break;
     case 'left':
       voice.talking.delete(m.id);
