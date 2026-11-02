@@ -126,6 +126,14 @@ canvas { display: block; width: 100vw; height: 100vh; }
 }
 #menu-error { color: #ff8a80; min-height: 18px; font-size: 14px; }
 #account { z-index: 140; }
+#queue .q-mode { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 34px; color: #ff4655; }
+#queue .q-ring { width: 120px; height: 120px; border-radius: 50%; border: 6px solid rgba(255,255,255,0.12); border-top-color: #ff4655;
+  animation: qspin 1s linear infinite; }
+#queue.found .q-ring { border-color: #4ade80; animation: none; }
+#queue .q-status { font-size: 26px; font-weight: 900; color: #fff; }
+#queue.found .q-status { color: #4ade80; }
+#queue .q-time { font-size: 20px; font-weight: 700; color: #fff; opacity: 0.8; font-variant-numeric: tabular-nums; }
+@keyframes qspin { to { transform: rotate(360deg); } }
 #account .logo { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 56px; color: #fff; text-shadow: 4px 4px 0 #ff4655; }
 #account .field { width: 240px; }
 #acct-msg { color: #ffb3a8; min-height: 18px; font-size: 14px; }
@@ -423,6 +431,15 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <i>상점 가기 ›</i>
     </button>
   </div>
+</div>
+
+<div id="queue" class="overlay hidden">
+  <div class="q-mode" id="q-mode">경쟁전</div>
+  <div class="q-ring"></div>
+  <div class="q-status" id="q-status">매칭 중</div>
+  <div class="q-time" id="q-time">0:00</div>
+  <div class="sub" id="q-sub"></div>
+  <button class="btn ghost" id="q-cancel">매칭 취소</button>
 </div>
 
 <div id="lobby" class="overlay hidden">
@@ -3225,7 +3242,7 @@ function playerName() {
   return n;
 }
 function showOnly(el) {
-  for (const e of [menuEl, lobbyEl]) e.classList.toggle('hidden', e !== el);
+  for (const e of [menuEl, lobbyEl, $('queue')]) e.classList.toggle('hidden', e !== el);
   document.body.classList.toggle('menu-open', !!el);   // game HUD hidden behind the main screen / lobby
 }
 
@@ -3479,6 +3496,7 @@ function createHostRoom(code, mode, type = 'elim') {
 
 // ── transports ──
 function netError(msg) {
+  if (net.ranked && queue.on) return requeue();
   if (net.mode === 'lobby') $('lobby-msg').textContent = msg; else $('menu-error').textContent = msg;
 }
 // 공방 (public rooms) sit on fixed codes PB01..PB12, so the menu can list them by asking each code who's there
@@ -3541,6 +3559,7 @@ function joinRoom(code) {
     conn.on('data', m => { try { onNetMessage(m); } catch (e) { console.error(e); } });
     conn.on('close', () => {
       if (net.conn !== conn) return;
+      if (net.ranked && queue.on && net.mode === 'lobby') { requeue(); return; }   // host gave up before the match started
       if (net.mode === 'lobby' || net.mode === 'online') { leaveOnline(); $('menu-error').textContent = '방장이 나갔거나 연결이 끊겼어요'; }
     });
   });
@@ -3638,7 +3657,7 @@ function startPractice() {
 }
 function enterLobby() {
   net.mode = 'lobby';
-  showOnly(lobbyEl);
+  showOnly(net.ranked ? $('queue') : lobbyEl);   // ranked: stay on the matchmaking screen, no lobby
   startScreen.classList.add('hidden');   // the match's "클릭해서 계속" would show through the lobby
   if (document.pointerLockElement) document.exitPointerLock();
   $('scorebar').classList.remove('show');
@@ -3666,9 +3685,11 @@ function leaveOnline() {
   startScreen.classList.add('hidden');
   showOnly(menuEl);
   net.quickNote = null;
+  if (account.lastResult) { $('menu-error').textContent = '경쟁전 ' + account.lastResult; account.lastResult = null; }
   refreshRooms();
 }
 function startOnlineMatch() {
+  stopQueue();
   net.mode = 'online';
   showOnly(null);
   for (const d of practiceDummies) d.visible = false;
@@ -3961,25 +3982,68 @@ $('rk-logout').onclick = async () => {
 })();
 
 // ── matchmaking: join an open ranked room whose host is within one division of you, else open one ──
-async function rankedMatch() {
-  if (!sb || !account.profile) return;
-  SFX.unlock(); voiceCtx(); closeTransport();
-  const size = account.size, mode = size + 'v' + size;
-  $('menu-error').textContent = `비슷한 티어 ${size}대${size} 방 찾는 중…`;
-  const d = account.profile.division;
-  const { data, error } = await sb.from('ranked_rooms').select('*').eq('status', 'open').eq('size', size)
+// Looks like a queue: underneath it joins an open ranked P2P room whose host is within one division
+// (same size), else hosts one and lists it. Two lone hosts that find each other merge (lower code wins).
+// When the room is full it starts by itself; the lobby is never shown.
+const queue = { on: false, start: 0, tick: null, retry: null };
+function rankedQuery(size, d) {
+  return sb.from('ranked_rooms').select('*').eq('status', 'open').eq('size', size)
     .gte('host_division', d - 1).lte('host_division', d + 1)
-    .gte('updated_at', new Date(Date.now() - 45000).toISOString())
-    .order('players', { ascending: false }).limit(20);
-  if (error) { $('menu-error').textContent = '매칭 서버 오류 (' + error.message + ')'; return; }
+    .gte('updated_at', new Date(Date.now() - 30000).toISOString());
+}
+function startQueueScreen() {
+  queue.on = true;
+  queue.start = performance.now();
+  const size = account.size;
+  $('q-mode').textContent = `경쟁전 ${size}대${size}`;
+  $('q-sub').textContent = `${divName(account.profile.division)} · 위아래 한 단계까지 매칭`;
+  $('queue').classList.remove('found');
+  showOnly($('queue'));
+  clearInterval(queue.tick);
+  queue.tick = setInterval(() => {
+    const sec = Math.floor((performance.now() - queue.start) / 1000);
+    $('q-time').textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    const need = account.size * 2, have = net.mode === 'lobby' ? (net.players || []).length : 0;
+    const found = have >= need;
+    $('queue').classList.toggle('found', found);
+    $('q-status').textContent = found ? '매치 발견!' : have > 1 ? `매칭 중 · ${have}/${need}명` : '매칭 중';
+  }, 250);
+}
+function stopQueue() {
+  queue.on = false;
+  clearInterval(queue.tick); queue.tick = null;
+  clearTimeout(queue.retry); queue.retry = null;
+}
+// something went wrong with the room we tried (gone, full, host left): look again in a moment
+function requeue() {
+  if (!queue.on) return;
+  clearTimeout(queue.retry);
+  queue.retry = setTimeout(() => { if (queue.on) rankedMatch(true); }, 700);
+}
+function dropRankedRoom() {
+  if (account.beat) { clearInterval(account.beat); account.beat = null; }
+  if (account.merge) { clearInterval(account.merge); account.merge = null; }
+  if (account.listing && sb) sb.from('ranked_rooms').delete().eq('code', account.listing).then(() => {});
+  account.listing = null;
+}
+async function rankedMatch(again = false) {
+  if (!sb || !account.profile) return;
+  SFX.unlock(); voiceCtx();
+  dropRankedRoom();
+  closeTransport();
+  clearRemotes();
+  net.mode = 'menu'; net.players = []; net.room = null;
+  if (again !== true) startQueueScreen();
+  const size = account.size, mode = size + 'v' + size, d = account.profile.division;
+  const { data, error } = await rankedQuery(size, d).order('players', { ascending: false }).limit(20);
+  if (!queue.on) return;
+  if (error) { $('q-status').textContent = '매칭 서버 오류 · 다시 시도 중'; return requeue(); }
   const room = (data || []).find(r => r.players < r.max_players && r.host_id !== account.user.id);
   net.ranked = true;
-  if (room) { $('menu-error').textContent = ''; joinRoom(room.code); return; }
-  net.quickNote = `같은 티어대 상대를 기다리는 중… (${size}대${size} · 위아래 한 단계까지) · 다 차면 자동으로 시작해요`;
+  if (room) { joinRoom(room.code); return; }
   hostRoom(mode, 'bomb', 0, false);
-  // list the room once it's open, then keep it fresh so stale rooms drop off the board
   for (let i = 0; i < 40 && !(net.hostRoom && net.room); i++) await new Promise(r => setTimeout(r, 250));
-  if (!net.hostRoom || !net.room) return;
+  if (!queue.on || !net.hostRoom || !net.room) return;
   account.listing = net.room;
   await sb.from('ranked_rooms').upsert({ code: net.room, host_id: account.user.id, host_division: d, size, max_players: size * 2,
     players: 1, status: 'open', updated_at: new Date().toISOString() });
@@ -3987,16 +4051,22 @@ async function rankedMatch() {
     if (!account.listing || account.listing !== net.room) return;
     sb.from('ranked_rooms').update({ players: (net.players || []).length, status: net.mode === 'lobby' ? 'open' : 'playing',
       updated_at: new Date().toISOString() }).eq('code', account.listing).then(() => {});
-  }, 15000);
+  }, 10000);
+  // still alone? if someone else is also waiting alone, the one with the higher code joins the other
+  account.merge = setInterval(async () => {
+    if (!queue.on || !net.hostRoom || (net.players || []).length > 1 || !account.listing) return;
+    const { data: others } = await rankedQuery(size, d).neq('host_id', account.user.id).lt('code', account.listing).limit(1);
+    if (queue.on && others && others.length && (net.players || []).length <= 1) rankedMatch(true);
+  }, 4000);
 }
 // leaving: take our room off the board
 function unlistRanked() {
-  if (account.beat) { clearInterval(account.beat); account.beat = null; }
-  if (account.listing && sb) sb.from('ranked_rooms').delete().eq('code', account.listing).then(() => {});
-  account.listing = null;
+  dropRankedRoom();
+  stopQueue();
   net.ranked = false;
 }
 window.addEventListener('pagehide', unlistRanked);
+$('q-cancel').onclick = leaveOnline;
 $('btn-ranked').onclick = rankedMatch;
 
 // match over: the server adds or takes the points (one result per 60 s)
@@ -4009,8 +4079,9 @@ async function reportRanked(win) {
   const promoted = data.division > account.profile.division, demoted = data.division < account.profile.division;
   account.profile = data;
   const diff = after - before;
-  addChat({ id: 0, name: '경쟁전', team: '', text: `${diff >= 0 ? '+' : ''}${diff}점 → ${divName(data.division)} ${data.points}점` +
-    (promoted ? ' · 승급!' : demoted ? ' · 강등' : '') });
+  const msg = `${win ? '승리' : '패배'} ${diff >= 0 ? '+' : ''}${diff}점 → ${divName(data.division)} ${data.points}점` + (promoted ? ' · 승급!' : demoted ? ' · 강등' : '');
+  addChat({ id: 0, name: '경쟁전', team: '', text: msg });
+  account.lastResult = msg;
   loadLeaderboard();
 }
 
@@ -4037,8 +4108,8 @@ function renderLobby() {
   $('lobby-msg').textContent = net.quickNote || (isHost ? '양 팀에 1명 이상 있으면 시작할 수 있어요' : '방장이 시작하길 기다리는 중…');
   if (net.players.length > 1) net.quickNote = null;
   if (net.ranked && isHost && net.players.length === per * 2 && !net.autoStart) {
-    $('lobby-msg').textContent = '인원이 다 찼어요 · 3초 뒤 시작';
-    net.autoStart = setTimeout(() => { net.autoStart = null; if (net.mode === 'lobby' && net.players.length === per * 2) netSend({ t: 'start' }); }, 3000);
+    $('lobby-msg').textContent = '인원이 다 찼어요 · 곧 시작';
+    net.autoStart = setTimeout(() => { net.autoStart = null; if (net.mode === 'lobby' && net.players.length === per * 2) netSend({ t: 'start' }); }, 2000);
   }
 }
 
@@ -4270,6 +4341,7 @@ function onNetMessage(m) {
   switch (m.t) {
     case 'welcome': net.id = m.id; break;
     case 'error':
+      if (net.ranked && queue.on) { requeue(); break; }
       if (net.mode === 'lobby') $('lobby-msg').textContent = m.msg; else $('menu-error').textContent = m.msg;
       break;
     case 'lobby':
@@ -4375,7 +4447,11 @@ function onNetMessage(m) {
       const win = m.winner === net.myTeam;
       if (net.ranked) reportRanked(win);
       showBanner(`${win ? '승리!' : '패배'}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}</small>`, 4);
-      setTimeout(() => { if (net.mode === 'online') { net.mode = 'lobby'; clearRemotes(); resetBombMode(); dummies.length = 0; enterLobby(); renderLobby(); } }, 4000);
+      setTimeout(() => {
+        if (net.mode !== 'online') return;
+        if (net.ranked) { leaveOnline(); return; }   // ranked: the match is over, back to the main screen
+        net.mode = 'lobby'; clearRemotes(); resetBombMode(); dummies.length = 0; enterLobby(); renderLobby();
+      }, 4000);
       break;
     }
   }
