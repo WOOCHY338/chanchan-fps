@@ -209,6 +209,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
     <option value="basic">기본칼</option>
     <option value="karambit">카람빗</option>
   </select></label>
+  <button class="btn ghost" id="btn-fullscreen" style="margin-top:10px;width:100%;padding:7px">전체화면 (Ctrl+W 막기)</button>
   <button class="btn ghost" id="btn-to-menu" style="margin-top:10px;width:100%;padding:7px">메뉴로 나가기</button>
 </div>
 
@@ -293,9 +294,8 @@ const CONFIG = {
   walkSpeed: 7,
   sprintSpeed: 7,
   jumpForce: 7,
-  dodgeSpeed: 17,
-  dodgeDuration: 0.3,
-  dodgeCooldown: 0.45, // counted from the end of the dodge
+  // crouch (Ctrl or C): eye height, speed and spread while fully crouched
+  crouchEye: 1.05, crouchSpeedMul: 0.45, crouchSpreadMul: 0.6, crouchRate: 9,
   gravity: -28,
   groundFriction: 0.92,
   airFriction: 0.998,
@@ -426,7 +426,6 @@ const sfx = {
   step: (vol = 0.3) => SFX.play('step' + Math.floor(Math.random() * 10), { vol, jitter: 0.06 }),
   jump: () => SFX.play('cloth1', { vol: 0.35, jitter: 0.05 }),
   land: () => { sfx.step(0.45); sfx.step(0.3); },
-  dodge: () => { SFX.play('cloth2', { vol: 0.45, rate: 1.2 }); sfx.step(0.35); },
   rifleRaise: () => SFX.play('click', { vol: 0.35, rate: 0.9 }),
 };
 // reload sounds are scheduled on the reload timeline; canceling stops them
@@ -938,7 +937,7 @@ const weapon = { ammo: WEAPON.magSize, cooldown: 0, reloading: 0, reload: RELOAD
 // recoverMaxSpeed (deg/s) caps the pull-back so big climbs come down at a steady pace; recoverRate only shapes the final ease-out
 // sprayResetDelay/Rate: after a short pause the pattern rewinds ~15 shots/s (a 3-shot burst is fully reset in ~0.3s)
 const RECOIL = {
-  recoverDelay: 0.12, recoverRate: 9, recoverMaxSpeed: 7, kickSmooth: 22,
+  recoverDelay: 0.1, recoverRate: 9, recoverMaxSpeed: 8.5, kickSmooth: 22,
   sprayResetDelay: 0.12, sprayResetRate: 15,
   plateauShot: 11, lateJitter: 0.28,
 };
@@ -966,7 +965,7 @@ function currentSpread(i) {
   const hip = Math.min(0.9, 0.1 + 0.03 * i)
     + Math.pow(Math.min(1.5, speedNow / CONFIG.walkSpeed), 1.5) * 1.8
     + (player.isGrounded ? 0 : 3.5);
-  return hip * (1 + (ADS.spreadMul - 1) * adsEase());
+  return hip * (1 + (ADS.spreadMul - 1) * adsEase()) * (1 + (CONFIG.crouchSpreadMul - 1) * player.crouch);
 }
 
 const recoil = { pitch: 0, yaw: 0, pendPitch: 0, pendYaw: 0, sinceShot: 1 };
@@ -1991,10 +1990,8 @@ const player = {
   height: 1.9,
   isGrounded: false,
   isSprinting: false,
-  isDodging: false,
-  dodgeTimer: 0,
-  dodgeCooldownTimer: 0,
-  dodgeDirection: new THREE.Vector3(),
+  isDodging: false,   // (the Shift dodge was removed; kept so old checks stay false)
+  crouch: 0,          // 0 standing → 1 crouched, eased
   hp: 100,
   dead: false,
 };
@@ -2058,6 +2055,10 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 document.addEventListener('pointerlockerror', () => {});
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && isLocked && e.code !== 'KeyW') e.preventDefault(); });
+window.addEventListener('beforeunload', e => {
+  if (net.mode === 'online' || net.mode === 'lobby') { e.preventDefault(); e.returnValue = ''; }
+});
 
 document.addEventListener('keydown', e => {
   if (e.code === 'Escape' && !isLocked) {
@@ -2197,36 +2198,12 @@ function update(dt) {
   const canAct = playerCanAct();   // frozen during the round countdown and while dead
   if (!canAct) moveDir.set(0, 0, 0);
 
-  // ── Dodge roll (Shift) ──
-  player.dodgeCooldownTimer = Math.max(0, player.dodgeCooldownTimer - dt);
+  // ── Crouch (hold Ctrl or C) ──
+  const wantCrouch = !player.dead && (keys['ControlLeft'] || keys['ControlRight'] || keys['KeyC']) ? 1 : 0;
+  player.crouch += (wantCrouch - player.crouch) * Math.min(1, CONFIG.crouchRate * dt);
+  if (Math.abs(wantCrouch - player.crouch) < 0.002) player.crouch = wantCrouch;
 
-  if (canAct && keys['ShiftLeft'] && player.isGrounded && !player.isDodging && player.dodgeCooldownTimer <= 0) {
-    player.isDodging = true;
-    sfx.dodge();
-    cancelReload();
-    player.dodgeTimer = CONFIG.dodgeDuration;
-    const dodgeDirMap = { KeyW: forward.clone(), KeyS: forward.clone().negate(), KeyD: right.clone(), KeyA: right.clone().negate() };
-    player.dodgeDirection = dodgeDirMap[lastMoveKey] || forward.clone();
-    keys['ShiftLeft'] = false;
-  }
-
-  if (player.isDodging) {
-    player.dodgeTimer -= dt;
-    if (player.dodgeTimer <= 0) {
-      player.isDodging = false;
-      player.dodgeTimer = 0;
-      player.dodgeCooldownTimer = CONFIG.dodgeCooldown;
-    }
-    const dodgeProgress = 1 - (player.dodgeTimer / CONFIG.dodgeDuration);
-    // ease in over the first 20%, ease out back to walk speed (no instant jolt either way)
-    const dodgeSpeedCurve = dodgeProgress < 0.2
-      ? Math.sin((dodgeProgress / 0.2) * Math.PI * 0.5)
-      : Math.cos(((dodgeProgress - 0.2) / 0.8) * Math.PI * 0.5);
-    const dodgeSpeedNow = CONFIG.walkSpeed + (CONFIG.dodgeSpeed - CONFIG.walkSpeed) * dodgeSpeedCurve;
-    player.velocity.x = player.dodgeDirection.x * dodgeSpeedNow;
-    player.velocity.z = player.dodgeDirection.z * dodgeSpeedNow;
-
-  } else {
+  {
 
     if (player.isGrounded) {
       // Ground: apply friction then accelerate
@@ -2239,7 +2216,8 @@ function update(dt) {
         player.velocity.z *= factor;
       }
       const weaponSpeedMul = loadout.current === 'knife' ? KNIFE.speedMul : 1;
-      const targetSpeed = CONFIG.walkSpeed * weaponSpeedMul * (1 + (ADS.speedMul - 1) * adsEase());
+      const crouchMul = 1 + (CONFIG.crouchSpeedMul - 1) * player.crouch;
+      const targetSpeed = CONFIG.walkSpeed * weaponSpeedMul * crouchMul * (1 + (ADS.speedMul - 1) * adsEase());
       const accel = CONFIG.groundAccel;
       const targetVelX = moveDir.x * targetSpeed;
       const targetVelZ = moveDir.z * targetSpeed;
@@ -2344,7 +2322,7 @@ function update(dt) {
 
   const eyePos = new THREE.Vector3(
     player.position.x,
-    player.position.y + 1.6,
+    player.position.y + 1.6 + (CONFIG.crouchEye - 1.6) * player.crouch,
     player.position.z,
   );
 
@@ -2391,28 +2369,15 @@ function update(dt) {
   magGroup.position.set(rk.mag[0], rk.mag[1], rk.mag[2]);
   leftArm.position.set(rk.lh[0], rk.lh[1], rk.lh[2]);
   poseLeftForearm(rk.lh, rk.el);
-  if (player.isDodging) {
-    viewmodelGroup.position.y -= 0.12;
-    viewmodelGroup.rotation.z += 0.35;
-  }
   viewmodelGroup.position.y -= 0.35 * loadout.h;
   viewmodelGroup.rotation.x -= 0.8 * loadout.h;
 
   // ── HUD ──
   const spd = Math.sqrt(player.velocity.x ** 2 + player.velocity.z ** 2);
   document.getElementById('speed').textContent = spd.toFixed(1);
-  const dodgeIndicator = document.getElementById('sprint-indicator');
-  if (player.isDodging) {
-    dodgeIndicator.style.display = 'block';
-    dodgeIndicator.textContent = 'DODGE';
-  } else if (player.dodgeCooldownTimer > 0) {
-    dodgeIndicator.style.display = 'block';
-    dodgeIndicator.textContent = `DODGE (${player.dodgeCooldownTimer.toFixed(1)}s)`;
-    dodgeIndicator.style.color = '#888';
-  } else {
-    dodgeIndicator.style.display = 'none';
-    dodgeIndicator.style.color = '#ffcc00';
-  }
+  const crouchIndicator = document.getElementById('sprint-indicator');
+  crouchIndicator.style.display = player.crouch > 0.5 ? 'block' : 'none';
+  crouchIndicator.textContent = 'CROUCH';
 
   // ── FPS ──
   frameCount++;
@@ -2670,7 +2635,8 @@ function createHostRoom(code, mode, type = 'elim') {
         break;
       case 'state':
         if (room.phase === 'lobby' || me.dead || !Array.isArray(m.p)) return;
-        me.state = { p: m.p.slice(0, 3).map(Number), yaw: +m.yaw || 0, pitch: +m.pitch || 0, w: m.w === 'knife' ? 'knife' : 'rifle', ads: !!m.ads };
+        me.state = { p: m.p.slice(0, 3).map(Number), yaw: +m.yaw || 0, pitch: +m.pitch || 0, w: m.w === 'knife' ? 'knife' : 'rifle', ads: !!m.ads,
+          cr: Math.max(0, Math.min(1, +m.cr || 0)) };
         { const act = m.act === 'plant' || m.act === 'defuse' ? m.act : null;
           if (act !== me.act) { me.act = act; me.actT = 0; } }
         break;
@@ -2898,6 +2864,19 @@ function startOnlineMatch() {
 }
 
 $('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
+// fullscreen + keyboard lock: the browser then hands Ctrl+W to the game instead of closing the tab (hold Esc to leave)
+$('btn-fullscreen').onclick = async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else {
+      await document.documentElement.requestFullscreen();
+      if (navigator.keyboard && navigator.keyboard.lock) await navigator.keyboard.lock();
+    }
+  } catch (e) { /* not allowed */ }
+};
+document.addEventListener('fullscreenchange', () => {
+  $('btn-fullscreen').textContent = document.fullscreenElement ? '전체화면 끄기 (Esc 길게)' : '전체화면 (Ctrl+W 막기)';
+});
 let lastCreate = { mode: '1v1', type: 'elim' };
 try { lastCreate = JSON.parse(localStorage.getItem('lastCreate')) || lastCreate; } catch (e) { /* storage blocked */ }
 const create = (mode, type) => {
@@ -3300,7 +3279,7 @@ function onNetMessage(m) {
         const r = net.remotes.get(s.id);
         if (!r) continue;
         r.hp = s.hp; r.dead = s.dead;
-        r.buf.push({ time: performance.now() / 1000, p: s.p, yaw: s.yaw, pitch: s.pitch, w: s.w });
+        r.buf.push({ time: performance.now() / 1000, p: s.p, yaw: s.yaw, pitch: s.pitch, w: s.w, cr: s.cr || 0 });
         if (r.buf.length > 20) r.buf.shift();
       }
       break;
@@ -3605,7 +3584,7 @@ function updateNet(dt) {
   if (net.sendT <= 0 && !player.dead) {
     net.sendT = 0.05;
     netSend({ t: 'state', p: player.position.toArray().map(v => +v.toFixed(3)), yaw: +cam.yaw.toFixed(1), pitch: +cam.pitch.toFixed(1),
-      w: loadout.current, ads: ads.held, act: net.act });
+      w: loadout.current, ads: ads.held, act: net.act, cr: +player.crouch.toFixed(2) });
   }
 
   // draw others 100 ms in the past, blending between the two snapshots around that time
@@ -3629,10 +3608,11 @@ function updateNet(dt) {
       u.moving = moved > 1;
       u.pitch = s0.pitch + (s1.pitch - s0.pitch) * k;
       u.weapon = s1.w;
+      u.crouch = s0.cr + (s1.cr - s0.cr) * k;
     }
     // name tag only when that player's head is actually in view (tags draw on top, so walls must hide them here)
     _tagFrom.copy(camera.position);
-    _tagTo.set(d.position.x, d.position.y + 1.7, d.position.z);
+    _tagTo.set(d.position.x, d.position.y + 1.7 * (1 - 0.32 * (u.crouch || 0)), d.position.z);
     const tagDist = _tagFrom.distanceTo(_tagTo);
     tagRay.set(_tagFrom, _tagTo.sub(_tagFrom).normalize());
     tagRay.far = tagDist;
@@ -3656,7 +3636,7 @@ function updateNet(dt) {
     u.flash.visible = u.flashT > 0;
     u.hitT = Math.max(0, (u.hitT || 0) - dt);
     const squash = u.hitT > 0 ? 1 + u.hitT * 1.5 : 1;
-    d.scale.set(squash, 2 - squash, 1);
+    d.scale.set(squash, (2 - squash) * (1 - 0.32 * (u.crouch || 0)), 1);   // crouching shrinks them (and their hitbox)
   }
 }
 
