@@ -448,34 +448,12 @@ const SFX = (() => {
   const buffers = {};
   let volume = 0.7;
   const FILES = {
-    ak: 'ak47_near.wav', sniper: 'sniper_bang.mp3', reload: 'ak_reload.wav', rack: 'ak_rack.wav', click: 'metalClick.ogg',
+    akshot: 'ak_shot.mp3', shotgun: 'shotgun_shot.mp3', sniper: 'sniper_bang.mp3', reload: 'ak_reload.wav', rack: 'ak_rack.wav', click: 'metalClick.ogg',
     slice1: 'knifeSlice.ogg', slice2: 'knifeSlice2.ogg',
     draw1: 'drawKnife1.ogg', draw2: 'drawKnife2.ogg', draw3: 'drawKnife3.ogg',
     cloth1: 'cloth1.ogg', cloth2: 'cloth2.ogg',
     ...Object.fromEntries([...Array(10)].map((_, i) => ['step' + i, `footstep0${i}.ogg`])),
   };
-  // single AK-47 shots (near, in front of the shooter) cut out of the Free Firearm Sound Library take
-  const SHOT_ONSETS = [0.61, 3.255, 6.02, 9.155];
-
-  function sliceShot(src, onset) {
-    const sr = src.sampleRate, len = Math.floor(sr * 0.9), fade = Math.floor(sr * 0.4);
-    const start = Math.max(0, Math.floor((onset - 0.01) * sr));
-    const out = ac.createBuffer(src.numberOfChannels, len, sr);
-    let peak = 0;
-    for (let c = 0; c < src.numberOfChannels; c++) {
-      const s = src.getChannelData(c), d = out.getChannelData(c);
-      for (let i = 0; i < len; i++) { d[i] = s[start + i] || 0; peak = Math.max(peak, Math.abs(d[i])); }
-    }
-    for (let c = 0; c < out.numberOfChannels; c++) {
-      const d = out.getChannelData(c);
-      for (let i = 0; i < len; i++) {
-        const tail = i > len - fade ? (len - i) / fade : 1;
-        d[i] = d[i] / peak * 0.95 * tail;
-      }
-    }
-    return out;
-  }
-
   async function load() {
     await Promise.all(Object.entries(FILES).map(async ([k, f]) => {
       try {
@@ -483,7 +461,6 @@ const SFX = (() => {
         buffers[k] = await ac.decodeAudioData(data);
       } catch (e) { console.warn('sound failed to load', f, e); }
     }));
-    if (buffers.ak) buffers.shots = SHOT_ONSETS.map(t => sliceShot(buffers.ak, t));
   }
 
   // created on the first click (browsers block audio until the user interacts)
@@ -554,7 +531,8 @@ const SFX = (() => {
 })();
 
 const sfx = {
-  shot: () => SFX.play('shots', { vol: 0.5, jitter: 0.03 }),
+  // supplied recordings start ~0.05 s in: skip that so the bang lands on the click
+  shot: () => SFX.play('akshot', { vol: 0.4, jitter: 0.03, offset: 0.04 }),
   dryFire: () => SFX.play('click', { vol: 0.6, rate: 1.4 }),
   hit: head => head ? (SFX.tone(1900, 0.06, 0.12), SFX.tone(2600, 0.08, 0.1, 0.035)) : SFX.tone(1500, 0.05, 0.1),
   kill: () => { SFX.tone(880, 0.09, 0.12, 0, 'triangle'); SFX.tone(1320, 0.16, 0.12, 0.08, 'triangle'); },
@@ -1707,9 +1685,8 @@ function fireShotgun(barrels) {
   if (n <= 0) return;
   sg.ammo -= n;
   const G = GUNS.shotgun;
-  SFX.play('shots', { vol: 0.8, rate: 0.7, jitter: 0.03 });
-  SFX.tone(62, 0.25, 0.45, 0, 'sine');
-  if (n > 1) SFX.play('shots', { vol: 0.7, rate: 0.64, delay: 0.012 });
+  SFX.play('shotgun', { vol: 0.55, jitter: 0.03, offset: 0.045 });
+  if (n > 1) SFX.play('shotgun', { vol: 0.45, rate: 0.95, delay: 0.015, offset: 0.045 });
   sg.kick = n > 1 ? 1.6 : 1;
   sg.flashT = 0.05;
   recoil.pendPitch += (n > 1 ? 5.5 : 3.4) + Math.random() * 0.6;
@@ -4087,8 +4064,8 @@ function onNetMessage(m) {
       r.avatar.userData.flashT = 0.05;
       if (Array.isArray(m.o) && Array.isArray(m.e)) addTracer(m.o, m.e);
       const dist = r.avatar.position.distanceTo(player.position);
-      const sniperShot = r.avatar.userData.weapon === 'sniper';
-      SFX.play(sniperShot ? 'sniper' : 'shots', { vol: 0.5 * Math.max(0.12, 1 - dist / (sniperShot ? 120 : 70)), jitter: 0.04 });
+      const w = r.avatar.userData.weapon, sound = { sniper: 'sniper', shotgun: 'shotgun' }[w] || 'akshot';
+      SFX.play(sound, { vol: 0.42 * Math.max(0.12, 1 - dist / (w === 'sniper' ? 120 : 70)), jitter: 0.04, offset: w === 'sniper' ? 0 : 0.04 });
       break;
     }
     case 'anim': {
