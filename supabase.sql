@@ -64,8 +64,10 @@ create table if not exists public.ranked_rooms (
   players int not null default 1,
   max_players int not null default 10,
   status text not null default 'open',       -- open | playing
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  size int not null default 5 check (size in (1, 2, 5))   -- 1v1 / 2v2 / 5v5
 );
+alter table public.ranked_rooms add column if not exists size int not null default 5 check (size in (1, 2, 5));
 alter table public.ranked_rooms enable row level security;
 drop policy if exists "rooms readable" on public.ranked_rooms;
 create policy "rooms readable" on public.ranked_rooms for select to authenticated using (true);

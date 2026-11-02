@@ -137,6 +137,8 @@ canvas { display: block; width: 100vw; height: 100vh; }
 .rk-badge { display: inline-block; padding: 1px 8px; border-radius: 4px; color: #14161b; font-weight: 800; font-size: 13px; }
 .rk-bar { height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; }
 .rk-bar i { display: block; height: 100%; width: 0; background: #ff4655; }
+#rk-sizes .btn { padding: 5px 14px; font-size: 13px; }
+#rk-sizes .btn.on { background: #ff4655; color: #fff; }
 #rk-board { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; font-size: 13px; color: #fff; }
 #rk-board div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #rk-board b { display: inline-block; width: 18px; opacity: 0.6; }
@@ -348,6 +350,11 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
         <div class="rk-head"><b>경쟁전</b><span class="sub">폭탄전 · 내 티어 위아래 한 단계까지 매칭 · 승리 약 +30점, 100점마다 승급</span></div>
         <div id="rk-me"></div>
         <div class="rk-bar"><i id="rk-bar"></i></div>
+        <div class="row left" id="rk-sizes">
+          <button class="btn ghost" data-size="1">1대1</button>
+          <button class="btn ghost" data-size="2">2대2</button>
+          <button class="btn ghost" data-size="5">5대5</button>
+        </div>
         <div class="row left">
           <button class="btn accent" id="btn-ranked">경쟁전 매칭</button>
           <button class="btn ghost" id="rk-login">로그인 / 계정 만들기</button>
@@ -3227,7 +3234,7 @@ function showOnly(el) {
 const PEER_PREFIX = 'chanchan-fps-v1-';
 const RULES = { winScore: 5, prestart: 3, roundTime: 100, post: 3, maxHit: 260 };
 const NET_WEAPONS = ['rifle', 'shotgun', 'sniper', 'knife'];
-const MODES = { '5v5': 5 };   // players per team (one room size; any split from 1v1 up to 5v5 can start)
+const MODES = { '1v1': 1, '2v2': 2, '5v5': 5 };   // players per team (normal rooms are 5v5-sized; ranked picks one)
 const ROOM_MODE = '5v5';
 const SPAWNS = {
   blue: [[-3, -24, 0], [3, -24, 0], [0, -25, 0], [-6, -25, 0], [6, -25, 0]],     // [x, z, yaw°]; yaw 0 faces +z
@@ -3822,8 +3829,8 @@ $('btn-to-menu').onclick = () => {
 // ── 경쟁전 + 계정 (Supabase) ── accounts are nickname + password, rank lives in the `profiles` table and only
 // the server-side report_result() changes it (see supabase.sql). Fill these two in from the Supabase project
 // (Project Settings → API): the URL and the anon/public key are meant to be public.
-const SUPABASE_URL = '';
-const SUPABASE_KEY = '';
+const SUPABASE_URL = 'https://mqdzetyhwltrjvwhkpty.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xZHpldHlod2x0cmp2d2hrcHR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MjQ1ODEsImV4cCI6MjEwOTIwMDU4MX0.S1LZiayFnRZNe-7fbPkS2TAOysFktM7hOQdOLTu54Cw';
 const sb = SUPABASE_URL && SUPABASE_KEY && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
 // 스톤 1 → 챌린저 2 is division 0 → 15; 챔피언 = the top 5 players at 챌린저 2
@@ -3831,7 +3838,15 @@ const TIERS = ['스톤', '브론즈', '실버', '골드', '플래티넘', '다�
 const TIER_COLORS = ['#8d8a83', '#b0703f', '#b8c2cc', '#e2b850', '#4fc3b3', '#6fa8ff', '#b56cff', '#ff6b6b'];
 const TOP_DIVISION = 15;
 const divName = d => TIERS[Math.floor(d / 2)] + ' ' + (d % 2 + 1);
-const account = { user: null, profile: null, champions: [], listing: null, beat: null };
+const account = { user: null, profile: null, champions: [], listing: null, beat: null, size: 1 };
+try { account.size = [1, 2, 5].includes(+localStorage.getItem('rankedSize')) ? +localStorage.getItem('rankedSize') : 1; } catch (e) { /* storage blocked */ }
+function setRankedSize(n) {
+  account.size = n;
+  try { localStorage.setItem('rankedSize', n); } catch (e) { /* storage blocked */ }
+  for (const b of document.querySelectorAll('#rk-sizes .btn')) b.classList.toggle('on', +b.dataset.size === n);
+}
+for (const b of document.querySelectorAll('#rk-sizes .btn')) b.onclick = () => setRankedSize(+b.dataset.size);
+setRankedSize(account.size);
 const isChampion = p => p && p.division === TOP_DIVISION && account.champions.includes(p.nickname);
 const rankLabel = p => isChampion(p) ? `챔피언 #${account.champions.indexOf(p.nickname) + 1}` : divName(p.division);
 const rankColor = p => isChampion(p) ? '#ffd76a' : TIER_COLORS[Math.floor(p.division / 2)];
@@ -3949,9 +3964,10 @@ $('rk-logout').onclick = async () => {
 async function rankedMatch() {
   if (!sb || !account.profile) return;
   SFX.unlock(); voiceCtx(); closeTransport();
-  $('menu-error').textContent = '비슷한 티어 방 찾는 중…';
+  const size = account.size, mode = size + 'v' + size;
+  $('menu-error').textContent = `비슷한 티어 ${size}대${size} 방 찾는 중…`;
   const d = account.profile.division;
-  const { data, error } = await sb.from('ranked_rooms').select('*').eq('status', 'open')
+  const { data, error } = await sb.from('ranked_rooms').select('*').eq('status', 'open').eq('size', size)
     .gte('host_division', d - 1).lte('host_division', d + 1)
     .gte('updated_at', new Date(Date.now() - 45000).toISOString())
     .order('players', { ascending: false }).limit(20);
@@ -3959,13 +3975,14 @@ async function rankedMatch() {
   const room = (data || []).find(r => r.players < r.max_players && r.host_id !== account.user.id);
   net.ranked = true;
   if (room) { $('menu-error').textContent = ''; joinRoom(room.code); return; }
-  net.quickNote = '같은 티어대 상대를 기다리는 중… (위아래 한 단계까지 매칭)';
-  hostRoom(ROOM_MODE, 'bomb', 0, false);
+  net.quickNote = `같은 티어대 상대를 기다리는 중… (${size}대${size} · 위아래 한 단계까지) · 다 차면 자동으로 시작해요`;
+  hostRoom(mode, 'bomb', 0, false);
   // list the room once it's open, then keep it fresh so stale rooms drop off the board
   for (let i = 0; i < 40 && !(net.hostRoom && net.room); i++) await new Promise(r => setTimeout(r, 250));
   if (!net.hostRoom || !net.room) return;
   account.listing = net.room;
-  await sb.from('ranked_rooms').upsert({ code: net.room, host_id: account.user.id, host_division: d, players: 1, status: 'open', updated_at: new Date().toISOString() });
+  await sb.from('ranked_rooms').upsert({ code: net.room, host_id: account.user.id, host_division: d, size, max_players: size * 2,
+    players: 1, status: 'open', updated_at: new Date().toISOString() });
   account.beat = setInterval(() => {
     if (!account.listing || account.listing !== net.room) return;
     sb.from('ranked_rooms').update({ players: (net.players || []).length, status: net.mode === 'lobby' ? 'open' : 'playing',
@@ -4000,7 +4017,8 @@ async function reportRanked(win) {
 function renderLobby() {
   $('lobby-code').textContent = net.room;
   $('lobby-modes').style.display = net.ranked ? 'none' : '';
-  $('lobby-mode').textContent = (net.ranked ? '경쟁전 · ' : '') + (net.roomType === 'bomb' ? '폭탄전' : '섬멸전') + ` · ${net.players.length}/10명`
+  const per = MODES[net.roomMode] || 5;
+  $('lobby-mode').textContent = (net.ranked ? `경쟁전 ${per}대${per} · ` : '') + (net.roomType === 'bomb' ? '폭탄전' : '섬멸전') + ` · ${net.players.length}/${per * 2}명`
     + (/^PB\d\d$/.test(net.room) ? ' · 일반' : '');
   for (const team of ['blue', 'red']) {
     $('lobby-' + team).innerHTML = '';
@@ -4018,6 +4036,10 @@ function renderLobby() {
   }
   $('lobby-msg').textContent = net.quickNote || (isHost ? '양 팀에 1명 이상 있으면 시작할 수 있어요' : '방장이 시작하길 기다리는 중…');
   if (net.players.length > 1) net.quickNote = null;
+  if (net.ranked && isHost && net.players.length === per * 2 && !net.autoStart) {
+    $('lobby-msg').textContent = '인원이 다 찼어요 · 3초 뒤 시작';
+    net.autoStart = setTimeout(() => { net.autoStart = null; if (net.mode === 'lobby' && net.players.length === per * 2) netSend({ t: 'start' }); }, 3000);
+  }
 }
 
 // ── CHAT ── Enter: everyone, T: team (in a match). The host relays it like everything else.
