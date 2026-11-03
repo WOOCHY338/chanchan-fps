@@ -222,3 +222,18 @@ begin
     on conflict (user_id, gun) do update set design = excluded.design, updated_at = now();
 end $$;
 grant execute on function public.save_custom_skin(text, jsonb) to authenticated;
+
+-- 나만의 스킨: 디자인 + 저장 슬롯 2개까지 한 행에 저장하므로 크기 제한 4MB
+create or replace function public.save_custom_skin(gun text, design jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare p public.profiles;
+begin
+  p := public._my_profile();
+  if not p.super and not exists (select 1 from public.skins_owned where user_id = p.id and skin = 'custom') then
+    raise exception '나만의 스킨을 먼저 사야 해요';
+  end if;
+  if gun not in ('rifle', 'sniper') then raise exception '이 총에는 못 넣어요'; end if;
+  if length(design::text) > 4000000 then raise exception '그림이 너무 커요'; end if;
+  insert into public.custom_skins (user_id, gun, design, updated_at) values (p.id, save_custom_skin.gun, save_custom_skin.design, now())
+    on conflict (user_id, gun) do update set design = excluded.design, updated_at = now();
+end $$;

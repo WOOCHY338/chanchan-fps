@@ -250,6 +250,9 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 #custom-editor input[type=range] { width: 130px; }
 #ce-preview { width: auto; max-width: 100%; max-height: 62vh; height: auto; align-self: flex-start; background: #1b1e25; border-radius: 6px; touch-action: none; }
 #ce-sel.off { opacity: 0.45; }
+#ce-views, #ce-slots { font-size: 13px; font-weight: 700; }
+#ce-slots .slot { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 8px; }
+#ce-slots .slot span { opacity: 0.7; font-weight: 600; }
 #ce-colors, #ce-sel { font-size: 13px; font-weight: 700; }
 #ce-image.hidden, #ce-colors.hidden, #ce-mag.hidden, #ce-mag-part.hidden { display: none; }
 #ce-parts { font-size: 13px; font-weight: 700; }
@@ -494,7 +497,13 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
           <button class="btn ghost" id="ce-del">지우기</button>
           <span class="sub" id="ce-count"></span>
         </div>
-        <div class="sub"><b>게임 화면 그대로</b>예요 (흐린 건 팔) · 스티커를 끌어서 옮기고 · <b>■</b> 끌어서 크기 · <b>●</b> 끌어서 회전 · 휠: 크기, Shift+휠: 회전</div>
+        <div class="row" id="ce-views">보기
+          <button class="btn ghost" data-view="game">게임 시점</button>
+          <button class="btn ghost" data-view="left">왼쪽</button>
+          <button class="btn ghost" data-view="right">오른쪽</button>
+          <button class="btn ghost" data-view="top">위</button>
+        </div>
+        <div class="sub">빈 곳을 끌면 총이 돌아가요 · 스티커를 끌어서 원하는 면에 붙이고 · <b>■</b> 크기 · <b>●</b> 회전 · 휠: 크기(Shift+휠: 회전), 스티커 안 고르면 확대</div>
         <canvas id="ce-preview" width="1024" height="400"></canvas>
         <div class="row" id="ce-sel">선택한 스티커
           <label>색조 <input type="range" data-ca="hue" min="-180" max="180" step="1" value="0"></label>
@@ -505,6 +514,10 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
           <label><input type="checkbox" data-cp="metal"> 금속</label>
           <label><input type="checkbox" data-cp="wood"> <span id="ce-wood-part">나무</span></label>
           <label id="ce-mag-part"><input type="checkbox" data-cp="mag"> 탄창</label>
+        </div>
+        <div class="row" id="ce-slots">저장 슬롯
+          <span class="slot"><b>1</b> <span id="ce-slot-info0"></span> <button class="btn ghost" id="ce-save0">저장</button><button class="btn ghost" id="ce-load0">불러오기</button></span>
+          <span class="slot"><b>2</b> <span id="ce-slot-info1"></span> <button class="btn ghost" id="ce-save1">저장</button><button class="btn ghost" id="ce-load1">불러오기</button></span>
         </div>
         <div class="row"><button class="btn accent" id="ce-equip">장착</button><button class="btn ghost" id="ce-reset">처음으로</button></div>
       </div>
@@ -4421,8 +4434,6 @@ function gemTexture(look) {
 }
 // the A-K's and AWP's own parts get their own materials so a skin doesn't repaint the other guns.
 // role: metal / wood (A-K furniture, AWP body) / mag. Hands and sleeves keep their look.
-const DECAL_CAM = new THREE.PerspectiveCamera(58, 16 / 9, 0.01, 10);
-DECAL_CAM.updateProjectionMatrix();
 function skinParts(root, roleOf, restPos, restRot) {
   const parts = [];
   root.traverse(o => {
@@ -4443,59 +4454,37 @@ function skinParts(root, roleOf, restPos, restRot) {
     for (let i = 0; i < pos.count; i++) f(v.fromBufferAttribute(pos, i).applyMatrix4(m), i);
   };
   for (const p of parts) each(p, q => { z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); });
-  // 나만의 스킨 stickers are projected from the game's own view camera with the gun at its resting place, so they
-  // land exactly where the player sees them. Each vertex keeps its clip-space position (x, y, w) from that camera
-  // in the decalH attribute (plus 1 = faces the player, 0 = turned away); the shader divides per pixel, which makes
-  // the projection exact with perspective. Faces turned away show only the plain colour.
+  // 나만의 스킨 stickers sit on the gun's surface (like CS2): every vertex keeps its resting position and normal in
+  // gun space (gunPos / gunNor), and the sticker shader projects each sticker from the direction it was stuck on
   const rest = new THREE.Matrix4().compose(restPos, new THREE.Quaternion().setFromEuler(restRot), new THREE.Vector3(1, 1, 1)).multiply(root.matrix);
-  const proj = DECAL_CAM.projectionMatrix;
   const eye = new THREE.Vector3().setFromMatrixPosition(rest.clone().invert());   // the player's eye in gun space
-  let x0 = Infinity, x1 = -Infinity, w0 = Infinity, w1 = -Infinity;
-  const nm = new THREE.Matrix3(), n = new THREE.Vector3(), cl = new THREE.Vector4();
+  let x0 = Infinity, x1 = -Infinity;
+  for (const p of parts) each(p, q => { x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); });
+  const nm = new THREE.Matrix3(), n = new THREE.Vector3();
   for (const p of parts) {
-    const geo = p.mesh.geometry;
+    const geo = p.mesh.geometry, count = geo.attributes.position.count;
     p.uvPaper = geo.attributes.uv;
-    const uv = new Float32Array(geo.attributes.position.count * 2), dh = new Float32Array(geo.attributes.position.count * 4);
+    const uv = new Float32Array(count * 2), gp = new Float32Array(count * 3), gn = new Float32Array(count * 3);
     const nor = geo.attributes.normal;
     nm.getNormalMatrix(m.multiplyMatrices(inv, p.mesh.matrixWorld));
     each(p, (q, i) => {
       uv[i * 2] = (z1 - q.z) / (z1 - z0);
       uv[i * 2 + 1] = (q.y - y0) / (y1 - y0);
-      const toEye = eye.clone().sub(q);
-      const facing = !nor || n.fromBufferAttribute(nor, i).applyMatrix3(nm).dot(toEye) > 0;
-      cl.set(q.x, q.y, q.z, 1).applyMatrix4(rest).applyMatrix4(proj);
-      dh.set([cl.x, cl.y, cl.w, facing ? 1 : 0], i * 4);
-      x0 = Math.min(x0, cl.x / cl.w); x1 = Math.max(x1, cl.x / cl.w); w0 = Math.min(w0, cl.y / cl.w); w1 = Math.max(w1, cl.y / cl.w);
+      gp.set([q.x, q.y, q.z], i * 3);
+      if (nor) { n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); gn.set([n.x, n.y, n.z], i * 3); }
     });
     p.uvSkin = new THREE.BufferAttribute(uv, 2);
-    geo.setAttribute('decalH', new THREE.BufferAttribute(dh, 4));
+    geo.setAttribute('gunPos', new THREE.BufferAttribute(gp, 3));
+    geo.setAttribute('gunNor', new THREE.BufferAttribute(gn, 3));
   }
-  // sticker texture = the part of the screen the gun covers (NDC, cut to the screen: the rest is never seen),
-  // at the screen's true shape
-  x0 = Math.max(x0, -1); x1 = Math.min(x1, 1); w0 = Math.max(w0, -1); w1 = Math.min(w1, 1);
-  parts.aspect = ((w1 - w0) * 9) / ((x1 - x0) * 16);
-  parts.proj = { x0, x1, y0: w0, y1: w1, camInGun: rest.clone().invert() };
+  const center = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  parts.center = center;
+  parts.radius = Math.max(x1 - x0, y1 - y0, z1 - z0) / 2;
+  parts.eyeDir = eye.sub(center).normalize();   // the in-game view direction (gun centre → eye)
   return parts;
 }
 const akParts = skinParts(gun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C.wood || hex === C.woodDark ? 'wood' : hex === C.mag ? 'mag' : null, VM_BASE, VM_ROT);
 const srParts = skinParts(srGun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C_AWP || hex === C_AWP_DARK ? 'wood' : null, SR_BASE, SR_ROT);
-// 나만의 스킨 sticker material: samples the sticker texture by the projected position (see skinParts)
-function stickerMat(tex, parts) {
-  const m = new THREE.MeshPhongMaterial({ map: tex, color: 0xffffff, flatShading: true, shininess: 25, specular: 0x222222 });
-  const pr = parts.proj;
-  m.onBeforeCompile = sh => {
-    sh.uniforms.uDecalMin = { value: new THREE.Vector2(pr.x0, pr.y0) };
-    sh.uniforms.uDecalMax = { value: new THREE.Vector2(pr.x1, pr.y1) };
-    sh.vertexShader = 'attribute vec4 decalH;\nvarying vec4 vDecal;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvDecal = decalH;');
-    sh.fragmentShader = 'uniform vec2 uDecalMin;\nuniform vec2 uDecalMax;\nvarying vec4 vDecal;\n' + sh.fragmentShader.replace('#include <map_fragment>', `
-      vec2 dUv = (vDecal.xy / vDecal.z - uDecalMin) / (uDecalMax - uDecalMin);
-      bool onSheet = vDecal.w > 0.5 && dUv.x >= 0.0 && dUv.x <= 1.0 && dUv.y >= 0.0 && dUv.y <= 1.0;
-      dUv = onSheet ? vec2(dUv.x, 0.5 + 0.5 * dUv.y) : vec2(0.5, 0.25);   // off the sheet or turned away: plain colour
-      diffuseColor *= texture2D(map, dUv);`);
-  };
-  m.customProgramCacheKey = () => 'decal';
-  return m;
-}
 // polished steel for texture skins (the paper look stays for paint skins)
 function skinMat(tex, shiny) {
   return new THREE.MeshPhongMaterial({ map: tex, color: 0xffffff, flatShading: true, shininess: shiny ? 90 : 25, specular: shiny ? 0x8899bb : 0x222222 });
@@ -4535,35 +4524,38 @@ function applyAkSkin(id) {
   });
 }
 
-// ── 나만의 스킨 (A-K · 저격총): a colour for each part, plus stickers (your own pictures) you drag, resize and
-// rotate on the gun like CS2 / 카트 stickers. Bought once on the server (100 찬크레딧). The design is saved with
-// the account (custom_skins table, readable only by its owner), so it follows you to any device you log in on.
+// ── 나만의 스킨 (A-K · 저격총): a colour for each part, plus stickers (your own pictures) stuck on the gun's surface
+// like CS2: turn the gun around in the editor and stick them on any side. Bought once on the server (100 찬크레딧).
+// The design and 2 save slots are kept with the account (custom_skins table, readable only by its owner), so they
+// follow you to any device and survive logging in again.
 const CUSTOM_GUNS = { rifle: 'A-K', sniper: '저격총' };
 const CUSTOM_DEFAULT = {
-  rifle: { metal: '#45413d', wood: '#c8682c', mag: '#b8561f', on: false, parts: { metal: true, wood: true, mag: true }, stickers: [] },
-  sniper: { metal: '#45413d', wood: '#5d6e45', mag: '#45413d', on: false, parts: { metal: true, wood: true, mag: true }, stickers: [] },
+  rifle: { metal: '#45413d', wood: '#c8682c', mag: '#b8561f', parts: { metal: true, wood: true, mag: true } },
+  sniper: { metal: '#45413d', wood: '#5d6e45', mag: '#45413d', parts: { metal: true, wood: true, mag: true } },
 };
-const MAX_STICKERS = 8;
-// sticker: img (data URL), x / y = centre on the gun's side (0..1, x from the stock, y from the bottom),
-// s = width as a share of the gun's length, r = rotation (radians), hue / sat / bright = colour adjustments
+const MAX_STICKERS = 8, CUSTOM_SLOTS = 2;
+// sticker: img (data URL), c = centre on the gun's surface and d = direction it was stuck from (toward the viewer),
+// both in gun space; w = width in gun units, a = height / width of the picture, r = turn (radians, clockwise as
+// seen), hue / sat / bright = colour adjustments
 const custom = {};
-function dropCustomTex(cs) {
-  for (const r of Object.values(cs.tex || {})) { r.t.dispose(); r.mat.dispose(); }
-  cs.tex = null;
+function cleanDesign(g, d) {
+  d = d || {};
+  const df = CUSTOM_DEFAULT[g];
+  return {
+    metal: d.metal || df.metal, wood: d.wood || df.wood, mag: d.mag || df.mag, on: !!d.on,
+    parts: { ...df.parts, ...(d.parts || {}) },
+    stickers: (Array.isArray(d.stickers) ? d.stickers : []).filter(st => st && st.img && Array.isArray(st.c) && Array.isArray(st.d))
+      .slice(0, MAX_STICKERS).map(st => ({ ...st, c: [...st.c], d: [...st.d] })),
+  };
+}
+function dropCustomGpu(cs) {
+  if (cs.gpu) { cs.gpu.atlas.dispose(); for (const m of Object.values(cs.gpu.mats)) m.dispose(); }
+  cs.gpu = null;
 }
 function resetCustom(g, design) {
-  if (custom[g]) dropCustomTex(custom[g]);
-  const d = design || {};
-  let stickers = Array.isArray(d.stickers) ? d.stickers : [];
-  if (!d.stickers && d.img && d.mode === 'image') {   // designs saved before stickers: one picture
-    stickers = [{ img: d.img, x: (d.px ?? 50) / 100, y: (d.py ?? 50) / 100, s: (d.size ?? 100) / 100, r: 0, hue: d.hue || 0, sat: d.sat ?? 100, bright: d.bright ?? 100 }];
-  }
-  custom[g] = {
-    metal: d.metal || CUSTOM_DEFAULT[g].metal, wood: d.wood || CUSTOM_DEFAULT[g].wood, mag: d.mag || CUSTOM_DEFAULT[g].mag, on: !!d.on,
-    parts: { ...CUSTOM_DEFAULT[g].parts, ...(d.parts || {}) },
-    stickers: stickers.map(st => ({ ...st })),
-    tex: null,
-  };
+  if (custom[g]) dropCustomGpu(custom[g]);
+  const slots = design && Array.isArray(design.slots) ? design.slots : [];
+  custom[g] = { ...cleanDesign(g, design), slots: [...Array(CUSTOM_SLOTS)].map((_, i) => slots[i] ? cleanDesign(g, slots[i]) : null), gpu: null };
 }
 for (const g of Object.keys(CUSTOM_GUNS)) resetCustom(g);
 const ownsCustom = () => !!(account.profile && (account.profile.super || shop.owned.custom));
@@ -4578,7 +4570,7 @@ async function loadCustom() {
   applySniperSkin();
   if (typeof renderCustomEditor === 'function') renderCustomEditor();
 }
-const customDesign = g => { const { tex, ...design } = custom[g]; return design; };   // tex is this device's GPU copy
+const customDesign = g => { const { gpu, ...design } = custom[g]; return design; };   // gpu is this device's copy
 // saving goes to the server a moment after the last change (colour pickers and dragging fire a lot)
 const customSaveT = {};
 function saveCustom(g) {
@@ -4586,7 +4578,7 @@ function saveCustom(g) {
   customSaveT[g] = setTimeout(async () => {
     if (!sb || !ownsCustom()) return;
     const design = customDesign(g);
-    if (JSON.stringify(design).length > 950000) return shopToast('스티커 사진 용량이 너무 커서 저장을 못 했어요 · 몇 장 지워 주세요');
+    if (JSON.stringify(design).length > 3900000) return shopToast('스티커 사진 용량이 너무 커서 저장을 못 했어요 · 몇 장 지워 주세요');
     const { error } = await sb.rpc('save_custom_skin', { gun: g, design });
     if (error) shopToast('스킨 저장 실패: ' + error.message);
   }, 600);
@@ -4602,67 +4594,106 @@ function customImage(src, done) {
   return null;
 }
 const customParts = g => g === 'rifle' ? akParts : srParts;
-// the decal texture is the gun as the player sees it, at its true shape; top half = faces toward the player
-// (stickers), bottom half = faces turned away (plain colour), see skinParts
-function decalSize(g) {
-  const W = 1024;
-  return { W, H: Math.round(W * customParts(g).aspect) };
+// a view / stick direction d (toward the viewer) → its screen axes in gun space: R = right, U = up
+function viewAxes(d) {
+  const up0 = Math.abs(d.y) > 0.98 ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 1, 0);
+  const R = new THREE.Vector3().crossVectors(up0, d).normalize();
+  return { R, U: new THREE.Vector3().crossVectors(d, R) };
 }
-function paintStickers(g, ctx, role) {
-  const cs = custom[g], { W, H } = decalSize(g);
-  ctx.fillStyle = cs[role];   // under and around the stickers: the part's colour
-  ctx.fillRect(0, 0, W, H * 2);
-  ctx.save();
-  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();   // stickers stay in the top half
-  for (const st of cs.stickers) {
+// a sticker's own axes: across (ax) and up (ay) the picture, after its turn
+function stickerAxes(st) {
+  const d = new THREE.Vector3(...st.d).normalize(), { R, U } = viewAxes(d), cr = Math.cos(st.r || 0), sr = Math.sin(st.r || 0);
+  return { d, ax: R.clone().multiplyScalar(cr).addScaledVector(U, -sr), ay: R.clone().multiplyScalar(sr).addScaledVector(U, cr) };
+}
+// GPU side: all sticker pictures in one atlas (4×2 cells), and per sticker a matrix from gun space to
+// (across, up, depth) of the sticker, shared by every part's material of that gun
+function customGpu(g) {
+  const cs = custom[g];
+  if (cs.gpu) return cs.gpu;
+  const c = document.createElement('canvas');
+  c.width = 2048; c.height = 1024;
+  const atlas = new THREE.CanvasTexture(c);
+  atlas.colorSpace = THREE.SRGBColorSpace;
+  atlas.anisotropy = 4;
+  const u = {
+    uStk: { value: [...Array(MAX_STICKERS)].map(() => new THREE.Matrix4()) },
+    uCell: { value: [...Array(MAX_STICKERS)].map(() => new THREE.Vector4()) },
+    uDir: { value: [...Array(MAX_STICKERS)].map(() => new THREE.Vector4()) },
+    uCount: { value: 0 },
+    uAtlas: { value: atlas },
+  };
+  cs.gpu = { atlas, u, mats: {} };
+  paintCustom(g);
+  return cs.gpu;
+}
+function paintCustom(g) {
+  const cs = custom[g], gpu = cs.gpu;
+  if (!gpu) return;
+  const ctx = gpu.atlas.image.getContext('2d');
+  ctx.clearRect(0, 0, 2048, 1024);
+  cs.stickers.forEach((st, i) => {
+    const col = i % 4, row = Math.floor(i / 4), x = col * 512 + 2, y = row * 512 + 2;
     const img = customImage(st.img, () => customRefresh(g));
-    if (!img) continue;
-    const w = W * st.s, h = w * img.height / img.width, x = W * st.x, y = H * (1 - st.y);
-    ctx.filter = `hue-rotate(${st.hue || 0}deg) saturate(${st.sat ?? 100}%) brightness(${st.bright ?? 100}%)`;
-    ctx.save(); ctx.translate(x, y); ctx.rotate(st.r || 0); ctx.drawImage(img, -w / 2, -h / 2, w, h); ctx.restore();
-    ctx.filter = 'none';
-  }
-  ctx.restore();
+    if (img) {
+      ctx.filter = `hue-rotate(${st.hue || 0}deg) saturate(${st.sat ?? 100}%) brightness(${st.bright ?? 100}%)`;
+      ctx.drawImage(img, x, y, 508, 508);
+      ctx.filter = 'none';
+    }
+    const { d, ax, ay } = stickerAxes(st), C = new THREE.Vector3(...st.c), w = st.w, h = st.w * st.a;
+    gpu.u.uStk.value[i].set(
+      ax.x / w, ax.y / w, ax.z / w, -C.dot(ax) / w,
+      ay.x / h, ay.y / h, ay.z / h, -C.dot(ay) / h,
+      d.x, d.y, d.z, -C.dot(d),
+      0, 0, 0, 1);
+    gpu.u.uCell.value[i].set(x / 2048, 1 - (y + 508) / 1024, 508 / 2048, 508 / 1024);
+    gpu.u.uDir.value[i].set(d.x, d.y, d.z, 0.02 + 0.6 * Math.max(w, h));   // w: how deep it may wrap onto slanted faces
+  });
+  gpu.u.uCount.value = cs.stickers.length;
+  gpu.atlas.needsUpdate = true;
 }
-// one texture per part kind that takes stickers; the other parts are just painted their colour
-function customTextures(g) {
-  const cs = custom[g];
-  if (cs.tex) return cs.tex;
-  cs.tex = {};
-  const { W, H } = decalSize(g);
-  for (const role of ['metal', 'wood', 'mag']) {
-    if (!cs.parts[role]) continue;
-    const c = document.createElement('canvas');
-    c.width = W; c.height = H * 2;
-    paintStickers(g, c.getContext('2d'), role);
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 4;
-    cs.tex[role] = { t, mat: stickerMat(t, customParts(g)) };
-  }
-  return cs.tex;
+// one material per part colour, paper look underneath, stickers on top (only on part kinds that take them)
+function stickerMat(g, p) {
+  const gpu = customGpu(g), key = p.role + p.base;
+  if (gpu.mats[key]) return gpu.mats[key];
+  const m = new THREE.MeshLambertMaterial({ map: paperTex, flatShading: true });
+  const allow = { value: 1 };
+  m.userData.allow = allow;
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, gpu.u, { uAllow: allow });
+    sh.vertexShader = 'attribute vec3 gunPos;\nattribute vec3 gunNor;\nvarying vec3 vGunPos;\nvarying vec3 vGunNor;\n'
+      + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvGunPos = gunPos;\n\tvGunNor = gunNor;');
+    sh.fragmentShader = `uniform mat4 uStk[${MAX_STICKERS}];\nuniform vec4 uCell[${MAX_STICKERS}];\nuniform vec4 uDir[${MAX_STICKERS}];
+uniform int uCount;\nuniform float uAllow;\nuniform sampler2D uAtlas;\nvarying vec3 vGunPos;\nvarying vec3 vGunNor;\n`
+      + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+  if (uAllow > 0.5) {
+    vec3 gn = normalize(vGunNor);
+    for (int i = 0; i < ${MAX_STICKERS}; i++) {
+      if (i >= uCount) break;
+      vec3 sp = (uStk[i] * vec4(vGunPos, 1.0)).xyz;
+      if (abs(sp.x) <= 0.5 && abs(sp.y) <= 0.5 && abs(sp.z) < uDir[i].w && dot(gn, uDir[i].xyz) > 0.2) {
+        vec4 sc = texture2D(uAtlas, uCell[i].xy + (sp.xy + 0.5) * uCell[i].zw);
+        diffuseColor.rgb = mix(diffuseColor.rgb, sc.rgb, sc.a);
+      }
+    }
+  }`);
+  };
+  m.customProgramCacheKey = () => 'sticker';
+  return gpu.mats[key] = m;
 }
-// stickers moved or a picture finished loading: repaint the existing textures in place (cheap while dragging)
+// stickers moved or a picture finished loading
 function customRefresh(g) {
-  const cs = custom[g];
-  if (cs.tex) for (const [role, r] of Object.entries(cs.tex)) { paintStickers(g, r.t.image.getContext('2d'), role); r.t.needsUpdate = true; }
+  paintCustom(g);
   customRepaint(g);
   drawCustomPreview();
 }
 function applyCustom(g) {
   const cs = custom[g];
-  const tex = cs.stickers.length ? customTextures(g) : null;
   for (const p of customParts(g)) {
-    const { role, base } = p;
-    if (tex && tex[role]) {
-      p.mesh.geometry.setAttribute('uv', p.uvPaper);
-      p.mesh.material = tex[role].mat;
-      continue;
-    }
+    const m = stickerMat(g, p), hex = parseInt(cs[p.role].slice(1), 16);
+    m.color.setHex(p.base === C.metalLight ? lighter(hex) : p.base === C_AWP_DARK ? new THREE.Color(hex).offsetHSL(0, 0, -0.06).getHex() : hex);
+    m.userData.allow.value = cs.parts[p.role] ? 1 : 0;
     p.mesh.geometry.setAttribute('uv', p.uvPaper);
-    p.mesh.material = p.paper;
-    const hex = parseInt(cs[role].slice(1), 16);
-    p.paper.color.setHex(base === C.metalLight ? lighter(hex) : base === C_AWP_DARK ? new THREE.Color(hex).offsetHSL(0, 0, -0.06).getHex() : hex);
+    p.mesh.material = m;
   }
 }
 // repaint a gun's custom design if it is the one in use
@@ -4675,35 +4706,12 @@ function applySniperSkin() {
   if (custom.sniper.on && ownsCustom()) return applyCustom('sniper');
   paintParts(srParts, null, null, () => false, p => p.base);
 }
-// colours or sticker parts changed: rebuild that gun's textures
+// colours, sticker parts or the sticker list changed
 function customChanged(g) {
-  dropCustomTex(custom[g]);
+  paintCustom(g);
   saveCustom(g);
   customRepaint(g);
   drawCustomPreview();
-}
-// a new sticker from a picture file: shrunk to 512px on the long side, kept see-through when possible
-function addSticker(g, file) {
-  if (!file || !/^image\//.test(file.type)) return shopToast('PNG나 JPG 사진 파일을 넣어 주세요');
-  if (custom[g].stickers.length >= MAX_STICKERS) return shopToast(`스티커는 ${MAX_STICKERS}장까지 붙일 수 있어요`);
-  const img = new Image();
-  img.onload = () => {
-    const k = Math.min(1, 512 / Math.max(img.width, img.height));
-    const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    URL.revokeObjectURL(img.src);
-    let url = c.toDataURL('image/webp', 0.85);
-    if (!url.startsWith('data:image/webp')) url = c.toDataURL('image/png');
-    if (url.length > 250000) url = c.toDataURL('image/jpeg', 0.85);
-    const cs = custom[g];
-    cs.stickers.push({ img: url, x: 0.45, y: 0.6, s: 0.25, r: 0, hue: 0, sat: 100, bright: 100 });
-    ce.sel = cs.stickers.length - 1;
-    customChanged(g);
-    renderCustomEditor();
-  };
-  img.onerror = () => shopToast('사진을 못 읽었어요');
-  img.src = URL.createObjectURL(file);
 }
 
 const shop = { owned: {}, playTimer: null };
@@ -4905,94 +4913,109 @@ function renderSkinInventory() {
   renderCustomEditor();
 }
 
-// 나만의 스킨 editor (inventory). The preview is the real gun model through the game's own view camera (the
-// same one the stickers are projected from), cropped to the gun and drawn by its own small renderer, so a point on
-// the preview is exactly a spot on the sticker texture and it looks the way it will in game. Arms are drawn faintly
-// on top so you can see what your hands will cover.
-const ce = { gun: 'rifle', sel: -1, drag: null, renderer: null };
-const CE_PAD_X = 1.06, CE_PAD_Y = 1.25;
-// preview pixels ↔ gun side (u from the stock 0..1, v from the bottom 0..1)
+// 나만의 스킨 editor (inventory): the real gun model in a small 3D view you can turn around (drag the empty
+// space), drawn by its own renderer. Stickers are stuck where you drop them, facing you, and stay on that spot
+// of the gun from every angle (and in game).
+const ce = { gun: 'rifle', sel: -1, drag: null, renderer: null, yaw: 0, pitch: 0, zoom: 1, viewOf: null };
+const CE_W = 1024, CE_H = 600;
+const ceDir = () => new THREE.Vector3(Math.cos(ce.pitch) * Math.sin(ce.yaw), Math.sin(ce.pitch), Math.cos(ce.pitch) * Math.cos(ce.yaw));
+function ceSetView(d) {
+  ce.yaw = Math.atan2(d.x, d.z);
+  ce.pitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
+}
+const ceGameView = () => ceSetView(customParts(ce.gun).eyeDir);
+// the current view: gun space → preview pixels and back
 function ceView() {
-  const pr = customParts(ce.gun).proj, cv = $('ce-preview');
-  const W = pr.x1 - pr.x0, H = pr.y1 - pr.y0, padX = W * (CE_PAD_X - 1) / 2, padY = H * (CE_PAD_Y - 1) / 2;
-  const L = pr.x0 - padX, R = pr.x1 + padX, T = pr.y1 + padY, B = pr.y0 - padY;
+  const parts = customParts(ce.gun), d = ceDir(), { R, U } = viewAxes(d), c = parts.center;
+  const half = parts.radius * 0.5 / ce.zoom, k = (CE_H / 2) / half;
   return {
-    L, R, T, B, cw: cv.width, ch: cv.height,
-    toPx: (u, v) => [(pr.x0 + u * W - L) / (R - L) * cv.width, (T - (pr.y0 + v * H)) / (T - B) * cv.height],
-    toUv: (px, py) => [(L + px / cv.width * (R - L) - pr.x0) / W, (T - py / cv.height * (T - B) - pr.y0) / H],
-    unit: cv.width * W / (R - L),   // preview pixels per sticker-texture width
+    d, R, U, c, half, k,
+    toPx: P => { const q = P.clone().sub(c); return [CE_W / 2 + q.dot(R) * k, CE_H / 2 - q.dot(U) * k]; },
+    ray: (px, py) => c.clone().addScaledVector(R, (px - CE_W / 2) / k).addScaledVector(U, -(py - CE_H / 2) / k),
   };
 }
-// a sticker's box on the preview: centre, half sizes, rotation
-function ceBox(st) {
-  const vw = ceView(), img = customImgs[st.img];
-  const [cx, cy] = vw.toPx(st.x, st.y), w = st.s * vw.unit, h = img && img.complete && img.width ? w * img.height / img.width : w;
-  return { cx, cy, hw: w / 2, hh: h / 2, r: st.r || 0 };
+// gun surface under a preview pixel (gun space), or null
+const ceRaycaster = new THREE.Raycaster();
+function ceSurface(px, py) {
+  const vw = ceView(), root = ce.gun === 'rifle' ? gun : srGun, parts = customParts(ce.gun);
+  root.updateMatrixWorld(true);
+  const o = root.localToWorld(vw.ray(px, py).addScaledVector(vw.d, parts.radius * 4));
+  const dir = vw.d.clone().negate().transformDirection(root.matrixWorld);
+  ceRaycaster.set(o, dir);
+  const hits = ceRaycaster.intersectObjects(parts.map(p => p.mesh), false);
+  return hits.length ? root.worldToLocal(hits[0].point.clone()) : null;
 }
-const ceRot = (b, lx, ly) => [b.cx + lx * Math.cos(b.r) - ly * Math.sin(b.r), b.cy + lx * Math.sin(b.r) + ly * Math.cos(b.r)];
-const ceHandles = b => ({ size: ceRot(b, b.hw, b.hh), turn: ceRot(b, 0, -b.hh - 46) });
+// a sticker's corners and handles on the preview
+function ceShape(st) {
+  const vw = ceView(), { ax, ay } = stickerAxes(st), C = new THREE.Vector3(...st.c), hw = st.w / 2, hh = st.w * st.a / 2;
+  const at = (x, y) => vw.toPx(C.clone().addScaledVector(ax, x).addScaledVector(ay, y));
+  const ctr = vw.toPx(C), top = at(0, hh), len = Math.hypot(top[0] - ctr[0], top[1] - ctr[1]) || 1;
+  return {
+    ctr, corners: [at(-hw, hh), at(hw, hh), at(hw, -hh), at(-hw, -hh)], size: at(hw, -hh),
+    turn: [top[0] + (top[0] - ctr[0]) / len * 46, top[1] + (top[1] - ctr[1]) / len * 46], top,
+  };
+}
+function inPoly(px, py, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
 function drawCustomPreview() {
   const cv = $('ce-preview');
   if (!cv || $('custom-editor').classList.contains('hidden')) return;
-  const g = ce.gun, root = g === 'rifle' ? gun : srGun, parts = customParts(g), pr = parts.proj;
-  const ch = Math.round(1024 * parts.aspect * CE_PAD_Y / CE_PAD_X);   // NDC box × padding at the screen's shape
-  if (cv.width !== 1024 || cv.height !== ch) { cv.width = 1024; cv.height = ch; }
+  if (ce.viewOf !== ce.gun) { ce.viewOf = ce.gun; ce.zoom = 1; ceGameView(); }
+  if (cv.width !== CE_W || cv.height !== CE_H) { cv.width = CE_W; cv.height = CE_H; }
+  const g = ce.gun, root = g === 'rifle' ? gun : srGun, parts = customParts(g);
   if (!ce.renderer) {
-    ce.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    ce.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     ce.renderer.toneMapping = renderer.toneMapping;
     ce.renderer.toneMappingExposure = renderer.toneMappingExposure;
     ce.renderer.setClearColor(0x1b1e25, 1);
+    ce.renderer.setSize(CE_W, CE_H, false);
+    ce.light = new THREE.DirectionalLight(0xffffff, 0.9);   // a light that turns with the view, so every side is lit
   }
   const R = ce.renderer;
-  if (R.domElement.width !== cv.width || R.domElement.height !== cv.height) R.setSize(cv.width, cv.height, false);
   applyCustom(g);
-  // only this gun: no knife or other guns; first pass without the arms, second pass only the arms (faint)
+  // only this gun: no arms, knife or other guns in the shot
   const changed = [];
   const show = (o, v) => { if (o.visible !== v) { changed.push([o, o.visible]); o.visible = v; } };
   const chain = new Set();
   for (let o = root; o; o = o.parent) { chain.add(o); show(o, true); }
   for (const o of vmCamera.children) if (!chain.has(o)) show(o, false);
-  const mine = new Set(parts.map(p => p.mesh)), arms = [];
-  root.traverse(o => { if (o.isMesh && !mine.has(o) && !(o.parent && mine.has(o.parent))) arms.push(o); });
-  for (const o of arms) show(o, false);
+  const mine = new Set(parts.map(p => p.mesh));
+  root.traverse(o => { if (o.isMesh && !mine.has(o) && !(o.parent && mine.has(o.parent))) show(o, false); });
+  root.updateMatrixWorld(true);
+  const vw = ceView(), q = root.getWorldQuaternion(new THREE.Quaternion());
+  const cam = new THREE.OrthographicCamera(-vw.half * CE_W / CE_H, vw.half * CE_W / CE_H, vw.half, -vw.half, 0.001, 20);
+  cam.position.copy(root.localToWorld(vw.c.clone().addScaledVector(vw.d, parts.radius * 4)));
+  cam.up.copy(vw.U).applyQuaternion(q);
+  cam.lookAt(root.localToWorld(vw.c.clone()));
+  cam.updateMatrixWorld();
+  ce.light.position.copy(cam.position).addScaledVector(cam.up, parts.radius * 3);
+  ce.light.target.position.copy(root.localToWorld(vw.c.clone()));
+  vmScene.add(ce.light, ce.light.target);
   vmScene.updateMatrixWorld(true);
-  const vw = ceView(), FW = 1600, FH = 900;
-  const cam = new THREE.PerspectiveCamera(DECAL_CAM.fov, FW / FH, DECAL_CAM.near, DECAL_CAM.far);
-  cam.setViewOffset(FW, FH, (vw.L + 1) / 2 * FW, (1 - vw.T) / 2 * FH, (vw.R - vw.L) / 2 * FW, (vw.T - vw.B) / 2 * FH);
-  cam.matrixAutoUpdate = false;
-  cam.matrixWorld.multiplyMatrices(root.matrixWorld, pr.camInGun);
-  cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
-  R.setClearColor(0x1b1e25, 1);
   R.clear();
   R.render(vmScene, cam);
-  const ctx = cv.getContext('2d');
-  ctx.drawImage(R.domElement, 0, 0);
-  for (const o of mine) show(o, false);
-  for (const o of arms) o.visible = true;
-  R.setClearColor(0x000000, 0);
-  R.clear();
-  R.render(vmScene, cam);
-  ctx.globalAlpha = 0.45;
-  ctx.drawImage(R.domElement, 0, 0);
-  ctx.globalAlpha = 1;
-  for (const o of arms) o.visible = false;
-  for (const o of mine) o.visible = true;
+  vmScene.remove(ce.light, ce.light.target);
   for (const [o, v] of changed) o.visible = v;
   if (g === 'rifle') applyAkSkin(akSkin); else applySniperSkin();
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(R.domElement, 0, 0);
   // the picked sticker: outline, ■ size handle, ● turn handle
   const st = custom[g].stickers[ce.sel];
   if (!st) return;
-  const b = ceBox(st), hd = ceHandles(b);
-  ctx.save();
-  ctx.translate(b.cx, b.cy); ctx.rotate(b.r);
+  const sh = ceShape(st);
   ctx.strokeStyle = '#ffd447'; ctx.lineWidth = 3; ctx.setLineDash([10, 6]);
-  ctx.strokeRect(-b.hw, -b.hh, b.hw * 2, b.hh * 2);
+  ctx.beginPath(); sh.corners.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.beginPath(); ctx.moveTo(0, -b.hh); ctx.lineTo(0, -b.hh - 46); ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = '#ffd447'; ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
-  ctx.fillRect(hd.size[0] - 13, hd.size[1] - 13, 26, 26); ctx.strokeRect(hd.size[0] - 13, hd.size[1] - 13, 26, 26);
-  ctx.beginPath(); ctx.arc(hd.turn[0], hd.turn[1], 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(...sh.top); ctx.lineTo(...sh.turn); ctx.stroke();
+  ctx.fillStyle = '#ffd447'; ctx.strokeStyle = '#111';
+  ctx.fillRect(sh.size[0] - 13, sh.size[1] - 13, 26, 26); ctx.strokeRect(sh.size[0] - 13, sh.size[1] - 13, 26, 26);
+  ctx.beginPath(); ctx.arc(sh.turn[0], sh.turn[1], 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 }
 function renderCustomEditor() {
   const owned = ownsCustom();
@@ -5013,6 +5036,10 @@ function renderCustomEditor() {
   for (const i of document.querySelectorAll('#custom-editor [data-ca]')) { i.disabled = !st; i.value = st ? st[i.dataset.ca] ?? (i.dataset.ca === 'hue' ? 0 : 100) : i.defaultValue; }
   $('ce-del').disabled = $('ce-front').disabled = !st;
   $('ce-count').textContent = `${cs.stickers.length}/${MAX_STICKERS}`;
+  cs.slots.forEach((sl, i) => {
+    $('ce-slot-info' + i).textContent = sl ? `스티커 ${sl.stickers.length}장` : '비어 있음';
+    $('ce-load' + i).disabled = !sl;
+  });
   const on = ce.gun === 'rifle' ? akSkin === 'custom' : cs.on;
   $('ce-equip').textContent = on ? `${CUSTOM_GUNS[ce.gun]}에 장착됨 · 해제` : `${CUSTOM_GUNS[ce.gun]}에 장착`;
   drawCustomPreview();
@@ -5027,6 +5054,39 @@ for (const i of document.querySelectorAll('#custom-editor [data-ca]')) i.oninput
   customRefresh(ce.gun);
   saveCustom(ce.gun);
 };
+// view buttons: the in-game angle, or straight at a side / the top
+const CE_VIEWS = { game: null, left: [-1, 0, 0], right: [1, 0, 0], top: [0, 0.97, 0.25] };
+for (const b of document.querySelectorAll('#ce-views .btn')) b.onclick = () => {
+  const v = CE_VIEWS[b.dataset.view];
+  if (v) ceSetView(new THREE.Vector3(...v).normalize()); else ceGameView();
+  ce.zoom = 1;
+  drawCustomPreview();
+};
+// a new sticker from a picture file: shrunk to 384px on the long side (kept see-through when possible), stuck on
+// the gun where the middle of the view hits it, facing the current view
+function addSticker(g, file) {
+  if (!file || !/^image\//.test(file.type)) return shopToast('PNG나 JPG 사진 파일을 넣어 주세요');
+  if (custom[g].stickers.length >= MAX_STICKERS) return shopToast(`스티커는 ${MAX_STICKERS}장까지 붙일 수 있어요`);
+  const img = new Image();
+  img.onload = () => {
+    const k = Math.min(1, 384 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(img.src);
+    let url = c.toDataURL('image/webp', 0.85);
+    if (!url.startsWith('data:image/webp')) url = c.toDataURL('image/png');
+    if (url.length > 200000) url = c.toDataURL('image/jpeg', 0.85);
+    const cs = custom[g], vw = ceView();
+    const at = ceSurface(CE_W / 2, CE_H / 2) || ceSurface(CE_W / 2, CE_H * 0.4) || customParts(g).center.clone();
+    cs.stickers.push({ img: url, c: at.toArray(), d: vw.d.toArray(), w: customParts(g).radius * 0.3, a: c.height / c.width, r: 0, hue: 0, sat: 100, bright: 100 });
+    ce.sel = cs.stickers.length - 1;
+    customChanged(g);
+    renderCustomEditor();
+  };
+  img.onerror = () => shopToast('사진을 못 읽었어요');
+  img.src = URL.createObjectURL(file);
+}
 $('ce-add').onclick = () => $('ce-file').click();
 $('ce-file').onchange = e => { addSticker(ce.gun, e.target.files[0]); e.target.value = ''; };
 $('ce-del').onclick = () => {
@@ -5041,67 +5101,108 @@ $('ce-front').onclick = () => {
   if (!cs.stickers[ce.sel]) return;
   cs.stickers.push(cs.stickers.splice(ce.sel, 1)[0]);
   ce.sel = cs.stickers.length - 1;
-  customRefresh(ce.gun); saveCustom(ce.gun);
+  customChanged(ce.gun);
 };
-// direct manipulation on the preview: drag a sticker to move it, ■ to resize, ● to turn; wheel = size, Shift+wheel = turn
+// 저장 슬롯 (2개): keep a copy of the design; loading puts it back (the slots are saved with the account)
+for (let i = 0; i < CUSTOM_SLOTS; i++) {
+  $('ce-save' + i).onclick = () => {
+    const cs = custom[ce.gun];
+    if (cs.slots[i] && !confirm(`슬롯 ${i + 1}에 저장된 디자인을 덮어쓸까요?`)) return;
+    const { slots, ...design } = customDesign(ce.gun);
+    cs.slots[i] = cleanDesign(ce.gun, design);
+    saveCustom(ce.gun);
+    shopToast(`슬롯 ${i + 1}에 저장했어요`);
+    renderCustomEditor();
+  };
+  $('ce-load' + i).onclick = () => {
+    const cs = custom[ce.gun], sl = cs.slots[i];
+    if (!sl) return;
+    const keep = { slots: cs.slots, on: cs.on };
+    resetCustom(ce.gun, { ...sl, ...keep });
+    ce.sel = -1;
+    customChanged(ce.gun);
+    shopToast(`슬롯 ${i + 1}을 불러왔어요`);
+    renderCustomEditor(); renderSkinTiles();
+  };
+}
+// direct manipulation on the preview: drag a sticker to move it, ■ to resize, ● to turn; drag empty space to turn
+// the gun; wheel = sticker size (Shift: turn) when one is picked, otherwise zoom
 function cePoint(e) {
   const cv = $('ce-preview'), rc = cv.getBoundingClientRect();
   return [(e.clientX - rc.left) * cv.width / rc.width, (e.clientY - rc.top) * cv.height / rc.height];
 }
 function ceHit(px, py) {
-  const cs = custom[ce.gun];
-  const cur = cs.stickers[ce.sel];
+  const cs = custom[ce.gun], d = ceView().d, cur = cs.stickers[ce.sel];
   if (cur) {
-    const hd = ceHandles(ceBox(cur));
-    if (Math.hypot(px - hd.size[0], py - hd.size[1]) < 24) return { i: ce.sel, op: 'size' };
-    if (Math.hypot(px - hd.turn[0], py - hd.turn[1]) < 24) return { i: ce.sel, op: 'turn' };
+    const sh = ceShape(cur);
+    if (Math.hypot(px - sh.size[0], py - sh.size[1]) < 26) return { i: ce.sel, op: 'size' };
+    if (Math.hypot(px - sh.turn[0], py - sh.turn[1]) < 26) return { i: ce.sel, op: 'turn' };
   }
   for (let i = cs.stickers.length - 1; i >= 0; i--) {
-    const b = ceBox(cs.stickers[i]), dx = px - b.cx, dy = py - b.cy;
-    const lx = dx * Math.cos(b.r) + dy * Math.sin(b.r), ly = -dx * Math.sin(b.r) + dy * Math.cos(b.r);
-    if (Math.abs(lx) <= b.hw && Math.abs(ly) <= b.hh) return { i, op: 'move' };
+    const st = cs.stickers[i];
+    if (new THREE.Vector3(...st.d).dot(d) < 0.2) continue;   // stuck on a side we're not looking at
+    if (inPoly(px, py, ceShape(st).corners)) return { i, op: 'move' };
   }
   return null;
 }
 $('ce-preview').addEventListener('pointerdown', e => {
   const [px, py] = cePoint(e), hit = ceHit(px, py);
-  ce.sel = hit ? hit.i : -1;
-  if (hit) {
-    const st = custom[ce.gun].stickers[hit.i], b = ceBox(st);
-    ce.drag = { ...hit, px, py, x: st.x, y: st.y, s: st.s, dist: Math.hypot(px - b.cx, py - b.cy) || 1 };
-    $('ce-preview').setPointerCapture(e.pointerId);
+  $('ce-preview').setPointerCapture(e.pointerId);
+  if (!hit) {
+    ce.sel = -1;
+    ce.drag = { op: 'orbit', px, py, yaw: ce.yaw, pitch: ce.pitch };
+    renderCustomEditor();
+    return;
   }
+  ce.sel = hit.i;
+  const st = custom[ce.gun].stickers[hit.i];
+  // grabbing a sticker turns it to face the current view (as you'd re-stick it), keeping its spot
+  const vd = ceView().d;
+  if (new THREE.Vector3(...st.d).dot(vd) < 0.999) { st.d = vd.toArray(); paintCustom(ce.gun); }
+  const sh = ceShape(st);
+  ce.drag = { ...hit, px, py, w: st.w, dist: Math.hypot(px - sh.ctr[0], py - sh.ctr[1]) || 1, grab: [px - sh.ctr[0], py - sh.ctr[1]] };
   renderCustomEditor();
 });
 $('ce-preview').addEventListener('pointermove', e => {
   const cv = $('ce-preview'), [px, py] = cePoint(e);
   if (!ce.drag) {
     const hit = ceHit(px, py);
-    cv.style.cursor = !hit ? 'default' : hit.op === 'size' ? 'nwse-resize' : hit.op === 'turn' ? 'grab' : 'move';
+    cv.style.cursor = !hit ? 'grab' : hit.op === 'size' ? 'nwse-resize' : hit.op === 'turn' ? 'crosshair' : 'move';
     return;
   }
-  const d = ce.drag, st = custom[ce.gun].stickers[d.i], vw = ceView();
+  const d = ce.drag;
+  if (d.op === 'orbit') {
+    ce.yaw = d.yaw - (px - d.px) * 0.008;
+    ce.pitch = Math.max(-1.35, Math.min(1.35, d.pitch + (py - d.py) * 0.008));
+    drawCustomPreview();
+    return;
+  }
+  const st = custom[ce.gun].stickers[d.i];
   if (!st) return;
   if (d.op === 'move') {
-    const [u0, v0] = vw.toUv(d.px, d.py), [u1, v1] = vw.toUv(px, py);
-    st.x = Math.min(1.1, Math.max(-0.1, d.x + u1 - u0));
-    st.y = Math.min(1.2, Math.max(-0.2, d.y + v1 - v0));
+    const hit = ceSurface(px - d.grab[0], py - d.grab[1]);
+    if (hit) { st.c = hit.toArray(); st.d = ceView().d.toArray(); }
   } else {
-    const b = ceBox(st);
-    if (d.op === 'size') st.s = Math.min(1.5, Math.max(0.02, d.s * Math.hypot(px - b.cx, py - b.cy) / d.dist));
-    else st.r = Math.atan2(py - b.cy, px - b.cx) + Math.PI / 2;
+    const sh = ceShape(st);
+    if (d.op === 'size') st.w = Math.min(1.5, Math.max(0.01, d.w * Math.hypot(px - sh.ctr[0], py - sh.ctr[1]) / d.dist));
+    else st.r = Math.atan2(py - sh.ctr[1], px - sh.ctr[0]) + Math.PI / 2;
   }
   customRefresh(ce.gun);
 });
-const ceDrop = () => { if (ce.drag) { ce.drag = null; saveCustom(ce.gun); renderSkinTiles(); } };
+const ceDrop = () => {
+  if (!ce.drag) return;
+  const op = ce.drag.op;
+  ce.drag = null;
+  if (op !== 'orbit') { saveCustom(ce.gun); renderSkinTiles(); }
+};
 $('ce-preview').addEventListener('pointerup', ceDrop);
 $('ce-preview').addEventListener('pointercancel', ceDrop);
 $('ce-preview').addEventListener('wheel', e => {
-  const st = custom[ce.gun].stickers[ce.sel];
-  if (!st) return;
   e.preventDefault();
+  const st = custom[ce.gun].stickers[ce.sel];
+  if (!st) { ce.zoom = Math.min(4, Math.max(0.6, ce.zoom * (e.deltaY > 0 ? 0.9 : 1.1))); drawCustomPreview(); return; }
   if (e.shiftKey) st.r = (st.r || 0) + Math.sign(e.deltaY || e.deltaX) * Math.PI / 36;
-  else st.s = Math.min(1.5, Math.max(0.02, st.s * (e.deltaY > 0 ? 0.93 : 1.07)));
+  else st.w = Math.min(1.5, Math.max(0.01, st.w * (e.deltaY > 0 ? 0.93 : 1.07)));
   customRefresh(ce.gun);
   saveCustom(ce.gun);
 }, { passive: false });
@@ -5111,8 +5212,9 @@ $('ce-equip').onclick = async () => {
   renderCustomEditor();
 };
 $('ce-reset').onclick = () => {
-  if (!confirm('색상과 스티커를 전부 처음으로 되돌릴까요?')) return;
-  resetCustom(ce.gun, { on: custom[ce.gun].on });
+  if (!confirm('색상과 스티커를 전부 처음으로 되돌릴까요? (저장 슬롯은 그대로예요)')) return;
+  const cs = custom[ce.gun];
+  resetCustom(ce.gun, { on: cs.on, slots: cs.slots });
   ce.sel = -1;
   customChanged(ce.gun);
   renderCustomEditor();

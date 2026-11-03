@@ -26,7 +26,7 @@
 - 보이스: PeerJS 미디어 풀메시, V 팀 / U 전체.
 - 경쟁전: `rankedMatch`, `startQueueScreen`, `ranked_rooms` 테이블, 티어 `divName` (스톤1 → 챌린저2, 챔피언 = 상위 5명).
 - 상점: `AK_SKINS`, `RARITY`, `GEM_LOOKS`/`gemTexture`(케이스 하드닝 텍스처), `applyAkSkin`, `openCase`, `buyItem`, `ITEM_PRICE`, `refreshShop`.
-- 나만의 스킨: `custom[g]` = { metal, wood, mag 색, on(저격총 장착), parts(스티커 붙는 부위), stickers[{img, x, y(0..1, 개머리판/아래 기준), s(총 길이 대비 폭), r(라디안), hue, sat, bright}] }. `CUSTOM_GUNS`(rifle·sniper), `applyCustom`, `customTextures`/`paintStickers`(부위별 캔버스, 위 절반=스티커(게임 화면 NDC 영역), 아래 절반=단색), 투영 카메라 `DECAL_CAM`(fov 58, 16:9) + `parts.proj`(NDC 범위, `camInGun`), `customRefresh`(드래그 중 제자리 갱신), `addSticker`, 편집기 `ce`/`drawCustomPreview`/`ceHit`. 계정 저장(`custom_skins` 테이블, `save_custom_skin` RPC, 0.6초 디바운스, 950KB 제한), `loadCustom()`이 로그인 시 불러옴(예전 단일 그림 디자인은 스티커 1장으로 변환). 구매는 서버(`buy_item('custom')`, 100크레딧).
+- 나만의 스킨: `custom[g]` = { metal, wood, mag 색, on(저격총 장착), parts(스티커 붙는 부위), stickers[{img, c(총 공간 표면 중심), d(붙인 방향), w(폭), a(세로/가로), r(회전), hue, sat, bright}], slots[2] }. 정점마다 총 공간 위치·법선(`gunPos`/`gunNor` 속성, `skinParts`에서 계산) → `stickerMat` 셰이더가 스티커마다 행렬(`uStk`)로 투영, 그림은 아틀라스(4×2칸) 한 장(`customGpu`/`paintCustom`). 편집기 `ce`(yaw/pitch/zoom, 정사영, 전용 렌더러), `ceSurface`(레이캐스트로 표면 찾기), `ceShape`/`ceHit`. 계정 저장(`custom_skins`, `save_custom_skin` RPC, 0.6초 디바운스, 4MB 제한). 구매는 `buy_item('custom')`, 100크레딧.
 - 스킨 UV: `skinParts()`가 총 옆면 기준 두 번째 UV(`uvSkin`)를 만들어서 텍스처 스킨이 총 전체에 이어지게 함 (u: 개머리판 0 → 총구 1).
 - 설정: `#settings-panel` 하나를 메인 화면 "설정" 페이지(`#settings-home`, class `in-page`)와 게임 중 ESC(떠 있는 패널) 사이에서 옮겨 씀. 값은 localStorage `settings`(JSON)에 저장 (`SAVED_SETTINGS`).
 - 그래픽: `GFX_TIERS` (high/mid/low = 그림자 품질), `setQuality`, `setTier`, `gfxFrame`(FPS 측정 + 자동 조절). **해상도는 절대 낮추지 않음** (사용자 친구들이 싫어함). 안티앨리어싱은 `gfxAA`(새로고침 후 적용).
@@ -44,6 +44,7 @@
 - Windows 경로가 길어서 git은 `git -c core.longpaths=true ...`.
 
 ## 작업 기록 (최신이 위)
+- 2026-11-03: 나만의 스킨 = 총 표면에 붙는 스티커(카스2식). 편집기에서 총을 돌려가며(빈 곳 드래그, 게임 시점/왼쪽/오른쪽/위 버튼, 휠 확대) 원하는 면에 붙임. 저장 슬롯 2개(계정 저장, design.slots). 서버 크기 제한 4MB.
 - 2026-11-03: 스티커를 게임 카메라 시점에서 투영(원근 정확: 정점마다 clip 좌표 `decalH` 속성 + `stickerMat` 셰이더에서 나눗셈). 편집 미리보기 = 게임 화면에 보이는 부분 그대로(같은 카메라, `setViewOffset`로 자름), 팔은 흐리게 표시. 플레이어 반대쪽 면/화면 밖은 단색.
 - 2026-11-03: 나만의 스킨을 카스2/카트 스티커 방식으로: 사진 스티커 여러 장(최대 8), 미리보기에서 드래그 이동·■ 크기·● 회전·휠. 왼쪽 면(게임에서 보이는 쪽)도 글자가 바로 읽히게 거울 처리. 미리보기는 전용 렌더러 + 정사영 카메라라 화면 좌표 = 총 옆면 좌표.
 - 2026-11-03: 나만의 스킨 사진을 원하는 부분에만: 넣을 부위(금속/나무·몸통/탄창) 선택 + 좌우·위아래·크기 조절, 사진 비율 유지. 미리보기는 실제 3D 총을 옆에서 렌더링(`drawCustomPreview`).
