@@ -175,3 +175,23 @@ begin
 end $$;
 
 -- make an account super (SQL Editor): update public.profiles set super = true, credits = greatest(credits, 999999) where nickname = '닉네임';
+
+-- ── 나만의 스킨 (A-K · 저격총, 100 찬크레딧) ── stored as skin 'custom'; the design itself stays on the player's device
+create or replace function public.buy_item(item text) returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  p public.profiles;
+  price int := case item when 'karambit' then 50 when 'custom' then 100 else null end;
+  k text := case item when 'custom' then 'custom' else 'knife_' || item end;
+begin
+  p := public._my_profile();
+  if price is null then raise exception '없는 상품이에요'; end if;
+  if p.super or exists (select 1 from public.skins_owned where user_id = p.id and skin = k) then
+    raise exception '이미 갖고 있어요';
+  end if;
+  if p.credits < price then raise exception '찬크레딧이 부족해요'; end if;
+  update public.profiles set credits = credits - price where id = p.id;
+  insert into public.skins_owned (user_id, skin) values (p.id, k);
+  return json_build_object('item', item, 'credits', p.credits - price);
+end $$;
+grant execute on function public.buy_item(text) to authenticated;

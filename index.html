@@ -63,6 +63,17 @@ canvas { display: block; width: 100vw; height: 100vh; }
 #settings-panel label { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
 #settings-panel input[type=range] { width: 120px; }
 #settings-panel .val { width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+#settings-panel { max-height: calc(100vh - 40px); overflow-y: auto; }
+#settings-panel .set-title { font-weight: 800; font-size: 16px; margin-bottom: 4px; }
+#settings-panel .set-title small { font-weight: 600; opacity: 0.55; font-size: 12px; margin-left: 6px; }
+#settings-panel .set-head { margin-top: 12px; padding-bottom: 3px; border-bottom: 1px solid rgba(255,255,255,0.2); font-weight: 800; color: #ffd447; }
+#settings-panel .set-note { font-size: 12px; opacity: 0.6; }
+#settings-panel.in-page { position: static; display: block; width: 100%; max-width: 480px; max-height: none; font-size: 14px;
+  background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.12); }
+#settings-panel.in-page input[type=range] { width: 170px; }
+#settings-panel.in-page #btn-to-menu { display: none; }
+#fps-meter { position: fixed; top: 6px; left: 8px; z-index: 160; color: #7CFC9A; font: 700 13px monospace; text-shadow: 1px 1px 0 #000; pointer-events: none; display: none; }
+#fps-meter.show { display: block; }
 
 #start-screen {
   position: fixed; inset: 0; background: rgba(0,0,0,0.85);
@@ -227,6 +238,18 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   linear-gradient(160deg, transparent 49%, #20222a 49%, #20222a 51%, transparent 51%); background-size: 70% 60%, 100% 100%; }
 .shop-art.karambit { background-image: radial-gradient(circle at 62% 30%, transparent 26px, #e2b850 27px, #e2b850 33px, transparent 34px),
   radial-gradient(circle at 38% 72%, transparent 9px, #b9bec7 10px, #b9bec7 13px, transparent 14px); }
+.shop-art.custom-art { background-image: linear-gradient(90deg, #ff4655, #ffd447, #4ade80, #3b82f6, #a855f7); opacity: 0.85;
+  -webkit-mask: linear-gradient(170deg, transparent 40%, #000 40%, #000 56%, transparent 56%); mask: linear-gradient(170deg, transparent 40%, #000 40%, #000 56%, transparent 56%); }
+#custom-editor { width: 100%; max-width: 620px; background: rgba(255,255,255,0.05); border: 2px solid rgba(255,212,71,0.35); border-radius: 8px; padding: 12px 14px;
+  color: #fff; display: flex; flex-direction: column; gap: 10px; }
+#custom-editor.hidden { display: none; }
+#custom-editor .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#custom-editor .btn { padding: 5px 12px; font-size: 13px; box-shadow: none; }
+#custom-editor label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+#custom-editor input[type=color] { width: 38px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; }
+#custom-editor input[type=range] { width: 130px; }
+#ce-preview { width: 100%; max-width: 512px; height: auto; align-self: flex-start; background: #1b1e25; border-radius: 6px; }
+#ce-image.hidden, #ce-colors.hidden, #ce-mag.hidden { display: none; }
 .inv-label { font-weight: 800; font-size: 15px; color: #fff; margin-top: 4px; }
 .inv-label small { font-weight: 600; opacity: 0.55; margin-left: 6px; }
 #page-inv .shop-item { width: 190px; }
@@ -340,19 +363,32 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 </div>
 
 <div id="settings-panel">
-  <div style="font-weight:600;margin-bottom:8px">Settings (ESC)</div>
-  <label>Sensitivity <input type="range" id="sens-slider" min="0.01" max="10" step="0.01" value="0.4"> <input type="number" id="sens-input" min="0.01" max="10" step="0.01" value="0.4" style="width:52px;background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:1px 4px;font-size:12px;text-align:right"></label>
-  <label>Camera Dist <input type="range" id="dist-slider" min="1" max="8" step="0.1" value="3.5"> <span class="val" id="dist-val">3.5</span></label>
-  <label>FOV <input type="range" id="fov-slider" min="50" max="110" step="1" value="65"> <span class="val" id="fov-val">65</span></label>
+  <div class="set-title">설정 <small>이 기기에 저장돼요</small></div>
+  <div class="set-head">조작</div>
+  <label>감도 <input type="range" id="sens-slider" min="0.01" max="10" step="0.01" value="0.4"> <input type="number" id="sens-input" min="0.01" max="10" step="0.01" value="0.4" style="width:52px;background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:1px 4px;font-size:12px;text-align:right"></label>
+  <label>3인칭 거리 <input type="range" id="dist-slider" min="1" max="8" step="0.1" value="3.5"> <span class="val" id="dist-val">3.5</span></label>
+  <label>시야각 (FOV) <input type="range" id="fov-slider" min="50" max="110" step="1" value="65"> <span class="val" id="fov-val">65</span></label>
   <label>화면 비율 <select id="aspect-select" style="background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:12px">
     <option value="native">기본 (화면 그대로)</option>
     <option value="stretch">4:3 스트레치</option>
     <option value="black">4:3 블랙바</option>
   </select></label>
-  <label>Invert Y <input type="checkbox" id="invert-y"></label>
-  <label>Volume <input type="range" id="vol-slider" min="0" max="1" step="0.05" value="0.7"> <span class="val" id="vol-val">70</span></label>
+  <label>마우스 상하 반전 <input type="checkbox" id="invert-y"></label>
+  <div class="set-head">그래픽</div>
+  <label>그래픽 품질 <select id="gfx-quality" style="background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:12px">
+    <option value="auto">자동 (60프레임 방어)</option>
+    <option value="high">높음</option>
+    <option value="mid">중간</option>
+    <option value="low">낮음</option>
+  </select></label>
+  <label>안티앨리어싱 (새로고침하면 적용) <input type="checkbox" id="gfx-aa"></label>
+  <label>FPS 표시 <input type="checkbox" id="gfx-fps"></label>
+  <div class="set-note" id="gfx-note">해상도는 그대로 두고 그림자 품질만 조절해요</div>
+  <div class="set-head">소리</div>
+  <label>효과음 <input type="range" id="vol-slider" min="0" max="1" step="0.05" value="0.7"> <span class="val" id="vol-val">70</span></label>
   <label>보이스 <input type="range" id="voice-slider" min="0" max="1" step="0.05" value="1"> <span class="val" id="voice-val">100</span></label>
   <button class="btn ghost mic-btn" style="margin-top:4px;width:100%;padding:6px">🎤 마이크 켜기</button>
+  <div class="set-head">기타</div>
   <label>칼 <select id="knife-select" style="background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:12px">
     <option value="basic">기본칼</option>
     <option value="karambit">카람빗</option>
@@ -360,6 +396,8 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   <label>자동 전체화면 (Ctrl+W 막기 · 1+0 나가기) <input type="checkbox" id="auto-fs" checked></label>
   <button class="btn ghost" id="btn-to-menu" style="margin-top:10px;width:100%;padding:7px">메뉴로 나가기</button>
 </div>
+
+<div id="fps-meter"></div>
 
 <div id="start-screen" class="hidden">
   <h1>찬찬배틀</h1>
@@ -387,6 +425,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <button class="nav-item" id="btn-practice">연습장</button>
       <button class="nav-item" data-page="shop">상점</button>
       <button class="nav-item" data-page="inv">인벤토리</button>
+      <button class="nav-item" data-page="settings">설정</button>
     </nav>
   </div>
 
@@ -438,6 +477,27 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       </div>
       <div class="inv-label">A-K 스킨 <small>상점의 노이펙트 상자에서 뽑아요</small></div>
       <div class="shop-grid" id="inv-skins"></div>
+      <div class="inv-label" id="ce-label">나만의 스킨 만들기 <small>이 기기에 저장돼요 · 나만 보여요</small></div>
+      <div id="custom-editor" class="hidden">
+        <div class="row" id="ce-guns"><button class="btn" data-cg="rifle">A-K</button><button class="btn" data-cg="sniper">저격총</button></div>
+        <div class="row" id="ce-modes"><button class="btn" data-cm="color">색상 조정</button><button class="btn" data-cm="image">그림 넣기 (PNG)</button></div>
+        <div class="row" id="ce-colors">
+          <label>금속 <input type="color" data-cc="metal"></label>
+          <label id="ce-wood-label">나무 <input type="color" data-cc="wood"></label>
+          <label id="ce-mag">탄창 <input type="color" data-cc="mag"></label>
+        </div>
+        <div id="ce-image">
+          <div class="row"><button class="btn ghost" id="ce-pick">그림 고르기</button><input type="file" id="ce-file" accept="image/png,image/jpeg,image/webp" hidden>
+            <span class="sub">가로로 긴 그림이 좋아요 · 왼쪽이 개머리판, 오른쪽이 총구</span></div>
+          <div class="row">
+            <label>색조 <input type="range" data-ca="hue" min="-180" max="180" step="1"></label>
+            <label>채도 <input type="range" data-ca="sat" min="0" max="200" step="1"></label>
+            <label>밝기 <input type="range" data-ca="bright" min="30" max="200" step="1"></label>
+          </div>
+        </div>
+        <canvas id="ce-preview" width="512" height="192"></canvas>
+        <div class="row"><button class="btn accent" id="ce-equip">장착</button><button class="btn ghost" id="ce-reset">처음으로</button></div>
+      </div>
       <div class="inv-label">칼</div>
       <div class="shop-grid">
         <div class="shop-item inv-item" data-kind="knife" data-id="basic"><div class="shop-art basic"></div><b>기본칼</b><button class="btn equip">장착</button></div>
@@ -449,6 +509,11 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
         <button class="btn ghost" data-aspect="stretch">4:3 스트레치</button>
         <button class="btn ghost" data-aspect="black">4:3 블랙바</button>
       </div>
+    </section>
+
+    <section class="menu-page hidden" id="page-settings">
+      <div class="page-title">설정</div>
+      <div id="settings-home"></div>
     </section>
 
     <section class="menu-page hidden" id="page-shop">
@@ -476,6 +541,14 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
           <div class="shop-art karambit"></div>
           <b>카람빗</b>
           <button class="btn equip">보유 중</button>
+        </div>
+      </div>
+      <div class="inv-label">나만의 스킨 <small>A-K · 저격총에 내 색상이나 그림(PNG)을 입혀요 · 나만 보여요</small></div>
+      <div class="shop-grid">
+        <div class="shop-item" data-skin="custom">
+          <div class="shop-art custom-art"></div>
+          <b>나만의 스킨</b>
+          <button class="btn equip">100 찬크레딧 · 구매</button>
         </div>
       </div>
     </section>
@@ -732,7 +805,10 @@ function playKnifeSound(name) {
 }
 
 // ── THREE.JS SETUP ──
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// 안티앨리어싱 can only be chosen when the renderer is made, so it applies after a reload
+let gfxAA = true;
+try { gfxAA = localStorage.getItem('gfxAA') !== '0'; } catch (e) { /* storage blocked */ }
+const renderer = new THREE.WebGLRenderer({ antialias: gfxAA, powerPreference: 'high-performance' });
 renderer.autoClear = false;
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -2966,8 +3042,9 @@ window.addEventListener('beforeunload', e => {
 });
 
 document.addEventListener('keydown', e => {
-  if (e.code === 'Escape' && !isLocked) {
+  if (e.code === 'Escape' && !isLocked && inGame()) {
     const panel = document.getElementById('settings-panel');
+    if (panel.classList.contains('in-page')) { panel.classList.remove('in-page', 'visible'); document.body.appendChild(panel); }
     panel.classList.toggle('visible');
   }
   if (e.code === 'Tab') e.preventDefault();
@@ -3800,19 +3877,20 @@ function showMenuPage(page) {
   for (const b of document.querySelectorAll('#menu .nav-item[data-page]')) b.classList.toggle('on', b.dataset.page === page);
   if (page === 'shop') { renderShop(); renderQuests(); }
   if (page === 'inv') { renderInventory(); renderSkinInventory(); }
+  if (page === 'settings') { const sp = $('settings-panel'); sp.classList.add('in-page'); $('settings-home').appendChild(sp); }
 }
 for (const b of document.querySelectorAll('#menu [data-page]')) b.onclick = () => showMenuPage(b.dataset.page);
 for (const b of document.querySelectorAll('#menu [data-goto]')) b.onclick = () => showMenuPage(b.dataset.goto);
 function renderShop() {
   for (const item of document.querySelectorAll('#page-shop .shop-item')) {
-    const id = item.dataset.skin, owned = typeof ownsKnife === 'function' ? ownsKnife(id) : id === 'basic';
+    const id = item.dataset.skin, owned = ownsItem(id);
     item.classList.toggle('equipped', item.dataset.skin === knifeSkin);
-    item.querySelector('.equip').textContent = owned ? '보유 중' : `${KNIFE_PRICE[id]} 찬크레딧 · 구매`;
+    item.querySelector('.equip').textContent = owned ? (id === 'custom' ? '보유 중 · 만들기' : '보유 중') : `${ITEM_PRICE[id]} 찬크레딧 · 구매`;
     item.querySelector('.equip').classList.toggle('accent', !owned);
   }
 }
 for (const item of document.querySelectorAll('#page-shop .shop-item')) {
-  item.querySelector('.equip').onclick = () => ownsKnife(item.dataset.skin) ? showMenuPage('inv') : buyItem(item.dataset.skin);
+  item.querySelector('.equip').onclick = () => ownsItem(item.dataset.skin) ? showMenuPage('inv') : buyItem(item.dataset.skin);
 }
 function renderInventory() {
   for (const item of document.querySelectorAll('.inv-item[data-kind]')) {
@@ -4245,6 +4323,7 @@ const RARITY = {
   rare: { label: '고급', color: '#4ade80' },
   epic: { label: '희귀', color: '#ff4655' },
   legend: { label: '전설', color: '#3b82f6' },
+  custom: { label: '커스텀', color: '#ffd447' },
 };
 const AK_SKINS = {
   default: { name: '기본', rarity: 'base' },
@@ -4254,73 +4333,251 @@ const AK_SKINS = {
   greengreen: { name: '그린그린', rarity: 'rare', paint: 0x3dbb5a, wood: 0x2f7d3f, mag: 0x6fe08a, odds: 12 },
   redgem: { name: '레드젬', rarity: 'epic', gem: ['#ff2a2a', '#ff7a2a', '#ffd23a', '#a3121b', '#ff5c8a'], odds: 2.7 },
   bluegem: { name: '블루젬', rarity: 'legend', gem: ['#1f5fff', '#2bb6ff', '#6a3cff', '#ffd447', '#0f2f9a'], odds: 0.3 },
+  custom: { name: '나만의 스킨', rarity: 'custom', custom: true },
 };
 const CASE_PRICE = 30;
 
-// case-hardened look: steel with blotches of the gem colours (each skin gets one fixed pattern)
-function gemTexture(cols, seed) {
+// Case Hardened (CS2 AK-47 #661 "blue gem" look): heat-tempered steel. The texture is one side view of the whole
+// gun (u = muzzle→stock, v = bottom→top), so the pattern flows across parts like the real finish: the top is
+// flooded with deep royal blue, it breaks into purple / cyan swirls lower down, and the bottom edge turns gold.
+const GEM_LOOKS = {
+  bluegem: { seed: 661, base: ['#1a3fd8', '#1b2d8c', '#4d5a78'], top: ['#1b3fe0', '#0d1f8a', '#2a5cff', '#0a1660', '#2f6bff', '#1530b8', '#3d7dff'],
+    mid: ['#5a2fd6', '#2e8bff', '#1d47e8', '#6a35e0', '#0d1f8a', '#3aa0ff'], low: ['#c8962e', '#e8b84a', '#8c6a2a', '#5f6a80'], spark: '#7fd0ff', line: '#081452' },
+  redgem: { seed: 387, base: ['#b5161c', '#7a1418', '#6a5a50'], top: ['#d41a1a', '#a3121b', '#ff3b2a', '#c4142e'],
+    mid: ['#ff6a2a', '#ff3b5c', '#e02a2a', '#ff8a3a', '#6e0a12'], low: ['#ffd23a', '#e8a63a', '#8c6a2a'], spark: '#ffd0a0', line: '#4a060c' },
+};
+function gemTexture(look) {
+  const W = 1024, H = 384;
   const c = document.createElement('canvas');
-  c.width = c.height = 256;
+  c.width = W; c.height = H;
   const g = c.getContext('2d');
-  let s = seed;
+  let s = look.seed;
   const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-  g.fillStyle = '#4c525e';
-  g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 120; i++) {
-    const x = rnd() * 256, y = rnd() * 256, r = 10 + rnd() * 55;
-    const grd = g.createRadialGradient(x, y, 0, x, y, r);
-    grd.addColorStop(0, cols[Math.floor(rnd() * cols.length)]);
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grd;
-    g.globalAlpha = 0.75 + rnd() * 0.25;
-    g.fillRect(x - r, y - r, r * 2, r * 2);
+  const pick = a => a[Math.floor(rnd() * a.length)];
+  const base = g.createLinearGradient(0, 0, 0, H);   // canvas y=0 is the top of the gun
+  base.addColorStop(0, look.base[0]); base.addColorStop(0.55, look.base[1]); base.addColorStop(1, look.base[2]);
+  g.fillStyle = base;
+  g.fillRect(0, 0, W, H);
+  // soft tempering pools, stretched along the gun and smeared (watercolor-like)
+  g.filter = 'blur(5px)';
+  for (let i = 0; i < 220; i++) {
+    const y = rnd() * H, band = y / H;
+    const col = band < 0.45 ? pick(look.top) : band < 0.8 ? (rnd() < 0.7 ? pick(look.mid) : pick(look.top)) : (rnd() < 0.6 ? pick(look.low) : pick(look.mid));
+    g.globalAlpha = 0.35 + rnd() * 0.5;
+    g.fillStyle = col;
+    g.beginPath();
+    g.ellipse(rnd() * W, y, 30 + rnd() * 140, 8 + rnd() * 40, (rnd() - 0.5) * 0.7, 0, Math.PI * 2);
+    g.fill();
+  }
+  // crisper swirl edges: thin wavy temper lines
+  g.filter = 'blur(1.5px)';
+  for (let i = 0; i < 70; i++) {
+    const y0 = rnd() * H, band = y0 / H;
+    g.strokeStyle = band > 0.8 ? pick(look.low) : rnd() < 0.75 ? look.line : pick(look.mid);
+    g.globalAlpha = 0.2 + rnd() * 0.3;
+    g.lineWidth = 1 + rnd() * 4;
+    g.beginPath();
+    let x = rnd() * W, y = y0;
+    g.moveTo(x, y);
+    for (let k = 0; k < 6; k++) {
+      const nx = x + 30 + rnd() * 90, ny = y + (rnd() - 0.5) * 50;
+      g.quadraticCurveTo((x + nx) / 2, y + (rnd() - 0.5) * 70, nx, ny);
+      x = nx; y = ny;
+    }
+    g.stroke();
+  }
+  // a few bright flecks and gold spots
+  g.filter = 'blur(3px)';
+  for (let i = 0; i < 18; i++) {
+    const y = H * (0.2 + rnd() * 0.8);
+    g.globalAlpha = 0.5 + rnd() * 0.4;
+    g.fillStyle = y / H > 0.75 ? pick(look.low) : look.spark;
+    g.beginPath();
+    g.ellipse(rnd() * W, y, 3 + rnd() * 14, 2 + rnd() * 6, rnd(), 0, Math.PI * 2);
+    g.fill();
+  }
+  g.filter = 'none';
+  // brushed steel grain along the gun
+  for (let i = 0; i < 2600; i++) {
+    g.globalAlpha = 0.05 + rnd() * 0.08;
+    g.fillStyle = rnd() < 0.5 ? '#ffffff' : '#000000';
+    g.fillRect(rnd() * W, rnd() * H, 8 + rnd() * 50, 1);
   }
   g.globalAlpha = 1;
   const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
   return t;
 }
-// the A-K's own parts get their own materials so a skin doesn't repaint the other guns
-const akParts = [];
-gun.traverse(o => {
-  if (!o.isMesh || !o.material || !o.material.color) return;
-  const hex = o.material.color.getHex();
-  const role = hex === C.metal || hex === C.metalLight ? 'metal' : hex === C.wood || hex === C.woodDark ? 'wood' : hex === C.mag ? 'mag' : null;
-  if (!role) return;   // hands and sleeves keep their look
-  o.material = o.material.clone();
-  akParts.push({ mesh: o, role, base: hex });
-});
+// the A-K's and AWP's own parts get their own materials so a skin doesn't repaint the other guns.
+// role: metal / wood (A-K furniture, AWP body) / mag. Hands and sleeves keep their look.
+function skinParts(root, roleOf) {
+  const parts = [];
+  root.traverse(o => {
+    if (!o.isMesh || !o.material || !o.material.color) return;
+    const hex = o.material.color.getHex(), role = roleOf(hex);
+    if (!role) return;
+    o.material = o.material.clone();
+    parts.push({ mesh: o, role, base: hex, paper: o.material });
+  });
+  // texture skins are laid over the gun like a side-view decal: every vertex gets a second set of UVs from its
+  // position in gun space (u: stock 0 → muzzle 1, v: bottom 0 → top 1), so a pattern or picture flows across parts
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), m = new THREE.Matrix4(), v = new THREE.Vector3();
+  let z0 = Infinity, z1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  const each = (p, f) => {
+    m.multiplyMatrices(inv, p.mesh.matrixWorld);
+    const pos = p.mesh.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) f(v.fromBufferAttribute(pos, i).applyMatrix4(m), i);
+  };
+  for (const p of parts) each(p, q => { z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); });
+  for (const p of parts) {
+    const geo = p.mesh.geometry;
+    p.uvPaper = geo.attributes.uv;
+    const uv = new Float32Array(geo.attributes.position.count * 2);
+    each(p, (q, i) => { uv[i * 2] = (z1 - q.z) / (z1 - z0); uv[i * 2 + 1] = (q.y - y0) / (y1 - y0); });
+    p.uvSkin = new THREE.BufferAttribute(uv, 2);
+  }
+  return parts;
+}
+const akParts = skinParts(gun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C.wood || hex === C.woodDark ? 'wood' : hex === C.mag ? 'mag' : null);
+const srParts = skinParts(srGun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C_AWP || hex === C_AWP_DARK ? 'wood' : null);
+// polished steel for texture skins (the paper look stays for paint skins)
+function skinMat(tex, shiny) {
+  return new THREE.MeshPhongMaterial({ map: tex, color: 0xffffff, flatShading: true, shininess: shiny ? 90 : 25, specular: shiny ? 0x8899bb : 0x222222 });
+}
+// paint one gun: tex covers the parts `texOn(role)` picks; the rest get flat paper colours from colorOf(p)
+function paintParts(parts, tex, mats, texOn, colorOf) {
+  for (const p of parts) {
+    if (tex && texOn(p.role)) {
+      p.mesh.geometry.setAttribute('uv', p.uvSkin);
+      p.mesh.material = p.role === 'wood' ? mats.wood : mats.steel;
+      continue;
+    }
+    p.mesh.geometry.setAttribute('uv', p.uvPaper);
+    p.mesh.material = p.paper;
+    p.paper.color.setHex(colorOf(p));
+  }
+}
+const lighter = hex => new THREE.Color(hex).offsetHSL(0, 0, 0.08).getHex();
 const gemCache = {};
+const gemMats = {};
 let akSkin = 'default';
 function applyAkSkin(id) {
   const sk = AK_SKINS[id] || AK_SKINS.default;
   akSkin = AK_SKINS[id] ? id : 'default';
-  if (sk.gem && !gemCache[akSkin]) gemCache[akSkin] = gemTexture(sk.gem, akSkin === 'bluegem' ? 661 : 387);
-  for (const { mesh, role, base } of akParts) {
-    const m = mesh.material;
-    m.map = paperTex;
-    let col = base;
-    if (sk.gem && role !== 'wood') { m.map = gemCache[akSkin]; col = 0xffffff; }
-    else if (sk.paint && role === 'metal') col = base === C.metalLight ? new THREE.Color(sk.paint).offsetHSL(0, 0, 0.08).getHex() : sk.paint;
-    else if (role === 'mag' && (sk.mag || sk.paint)) col = sk.mag || sk.paint;
-    else if (role === 'wood' && sk.wood) col = sk.wood;
-    m.color.setHex(col);
-    m.needsUpdate = true;
+  if (sk.custom) return applyCustom('rifle');
+  let tex = null;
+  if (sk.gem) {
+    tex = gemCache[akSkin] || (gemCache[akSkin] = gemTexture(GEM_LOOKS[akSkin]));
+    gemMats[akSkin] = gemMats[akSkin] || { steel: skinMat(tex, true), wood: skinMat(tex, false) };
   }
+  // gems keep the wooden furniture like the real Case Hardened
+  paintParts(akParts, tex, gemMats[akSkin], role => role !== 'wood', ({ role, base }) => {
+    if (sk.paint && role === 'metal') return base === C.metalLight ? lighter(sk.paint) : sk.paint;
+    if (role === 'mag' && (sk.mag || sk.paint)) return sk.mag || sk.paint;
+    if (role === 'wood' && sk.wood) return sk.wood;
+    return base;
+  });
+}
+
+// ── 나만의 스킨 (A-K · 저격총): pick colours for each part, or put in a picture (with hue / saturation / brightness).
+// Bought once on the server (100 찬크레딧); the design itself stays on this device, so only you see it.
+const CUSTOM_GUNS = { rifle: 'A-K', sniper: '저격총' };
+const CUSTOM_DEFAULT = {
+  rifle: { mode: 'color', metal: '#45413d', wood: '#c8682c', mag: '#b8561f', img: null, hue: 0, sat: 100, bright: 100, on: false },
+  sniper: { mode: 'color', metal: '#45413d', wood: '#5d6e45', mag: '#45413d', img: null, hue: 0, sat: 100, bright: 100, on: false },
+};
+const custom = {};
+for (const g of Object.keys(CUSTOM_GUNS)) {
+  custom[g] = { ...CUSTOM_DEFAULT[g] };
+  try { Object.assign(custom[g], JSON.parse(localStorage.getItem('custom_' + g) || '{}')); } catch (e) { /* storage blocked or bad data */ }
+  custom[g].tex = null;
+}
+const ownsCustom = () => !!(account.profile && (account.profile.super || shop.owned.custom));
+function saveCustom(g) {
+  const { tex, ...data } = custom[g];
+  try { localStorage.setItem('custom_' + g, JSON.stringify(data)); return true; } catch (e) { return false; }
+}
+// the picture, drawn with the colour adjustments into the decal texture (async: the image loads, then it updates)
+function customTexture(g) {
+  const cs = custom[g];
+  if (cs.tex) return cs.tex.t;
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 384;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  cs.tex = { t, steel: skinMat(t, false), wood: skinMat(t, false) };
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = cs.metal;   // see-through parts of a PNG show the metal colour
+  ctx.fillRect(0, 0, c.width, c.height);
+  if (cs.img) {
+    const img = new Image();
+    img.onload = () => {
+      ctx.filter = `hue-rotate(${cs.hue}deg) saturate(${cs.sat}%) brightness(${cs.bright}%)`;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      ctx.filter = 'none';
+      t.needsUpdate = true;
+      drawCustomPreview();
+    };
+    img.src = cs.img;
+  }
+  return t;
+}
+function applyCustom(g) {
+  const cs = custom[g], parts = g === 'rifle' ? akParts : srParts;
+  const tex = cs.mode === 'image' && cs.img ? customTexture(g) : null;
+  paintParts(parts, tex, cs.tex, () => true, ({ role, base }) => {
+    const hex = parseInt((role === 'wood' ? cs.wood : role === 'mag' ? cs.mag : cs.metal).slice(1), 16);
+    return base === C.metalLight ? lighter(hex) : base === C_AWP_DARK ? new THREE.Color(hex).offsetHSL(0, 0, -0.06).getHex() : hex;
+  });
+}
+// the AWP has no case skins: it is either stock or your own design
+function applySniperSkin() {
+  if (custom.sniper.on && ownsCustom()) return applyCustom('sniper');
+  paintParts(srParts, null, null, () => false, p => p.base);
+}
+// something changed in the editor: rebuild that gun's look if it is being used
+function customChanged(g) {
+  const cs = custom[g];
+  if (cs.tex) { cs.tex.t.dispose(); cs.tex.steel.dispose(); cs.tex.wood.dispose(); cs.tex = null; }
+  if (!saveCustom(g)) shopToast('그림이 너무 커서 이 기기에 저장을 못 했어요');
+  if (g === 'rifle' && akSkin === 'custom') applyCustom('rifle');
+  if (g === 'sniper') applySniperSkin();
+  drawCustomPreview();
+}
+function setCustomImage(g, file) {
+  if (!file || !/^image\//.test(file.type)) return shopToast('PNG나 JPG 그림 파일을 넣어 주세요');
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas');
+    c.width = 1024; c.height = 384;
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(img.src);
+    const cs = custom[g];
+    cs.img = c.toDataURL(/png/.test(file.type) ? 'image/png' : 'image/jpeg', 0.9);
+    if (cs.img.length > 1500000) cs.img = c.toDataURL('image/jpeg', 0.85);   // keep it small enough for this device's storage
+    cs.mode = 'image';
+    customChanged(g);
+    renderCustomEditor();
+  };
+  img.onerror = () => shopToast('그림을 못 읽었어요');
+  img.src = URL.createObjectURL(file);
 }
 
 const shop = { owned: {}, playTimer: null };
-const KNIFE_PRICE = { karambit: 50 };
+const ITEM_PRICE = { karambit: 50, custom: 100 };
 const ownsKnife = id => id === 'basic' || !!(account.profile && (account.profile.super || shop.owned['knife_' + id]));
+const ownsItem = id => id === 'custom' ? ownsCustom() : ownsKnife(id);
 async function buyItem(item) {
   if (!sb || !account.profile) return shopToast('로그인해야 살 수 있어요');
-  if ((account.profile.credits || 0) < KNIFE_PRICE[item]) return shopToast('찬크레딧이 부족해요 · 퀘스트로 모아 보세요');
+  if ((account.profile.credits || 0) < ITEM_PRICE[item]) return shopToast('찬크레딧이 부족해요 · 퀘스트로 모아 보세요');
   const { data, error } = await sb.rpc('buy_item', { item });
   if (error || !data) return shopToast(error ? error.message : '구매 실패');
   account.profile.credits = data.credits;
-  shop.owned['knife_' + item] = 1;
-  shopToast('카람빗을 샀어요! 인벤토리에서 장착하세요');
-  renderCredits(); renderShop(); renderInventory();
+  shop.owned[item === 'custom' ? 'custom' : 'knife_' + item] = 1;
+  shopToast(item === 'custom' ? '나만의 스킨을 샀어요! 인벤토리에서 만들어 보세요' : '카람빗을 샀어요! 인벤토리에서 장착하세요');
+  renderCredits(); renderShop(); renderInventory(); renderSkinInventory();
 }
 // a knife you no longer own (logged out, or never bought) falls back to 기본칼
 function checkKnifeOwnership() {
@@ -4335,13 +4592,14 @@ function renderCredits() {
 }
 // today's status (and starts the server's 10-minute clock), owned skins, then repaint everything
 async function refreshShop() {
-  if (!sb || !account.profile) { shop.owned = {}; renderCredits(); renderQuests(); renderSkinInventory(); checkKnifeOwnership(); return; }
+  if (!sb || !account.profile) { shop.owned = {}; applySniperSkin(); renderCredits(); renderQuests(); renderSkinInventory(); checkKnifeOwnership(); return; }
   const { data } = await sb.rpc('shop_status');
   if (data) account.profile = { ...account.profile, ...data };
   const { data: rows } = await sb.from('skins_owned').select('skin');
   shop.owned = {};
   for (const r of rows || []) shop.owned[r.skin] = (shop.owned[r.skin] || 0) + 1;
   applyAkSkin(account.profile.equipped_skin || 'default');
+  applySniperSkin();
   renderCredits(); renderQuests(); renderSkinInventory(); renderShop();
   checkKnifeOwnership();
   schedulePlaytime();
@@ -4420,7 +4678,9 @@ function skinTile(id) {
   d.className = 'tile';
   d.style.borderBottomColor = r.color;
   const sw = document.createElement('i');
-  sw.style.background = sk.gem ? `linear-gradient(135deg, ${sk.gem.join(',')})` : '#' + new THREE.Color(sk.paint || C.metal).getHexString();
+  const cr = custom.rifle;
+  sw.style.background = sk.custom ? (cr.mode === 'image' && cr.img ? `center / cover url(${cr.img})` : `linear-gradient(90deg, ${cr.wood} 0 30%, ${cr.metal} 30% 70%, ${cr.mag} 70%)`)
+    : sk.gem ? `linear-gradient(135deg, ${sk.gem.join(',')})` : '#' + new THREE.Color(sk.paint || C.metal).getHexString();
   const n = document.createElement('span');
   n.textContent = sk.name;
   d.append(sw, n);
@@ -4482,6 +4742,7 @@ function renderSkinInventory() {
     const sk = AK_SKINS[id], r = RARITY[sk.rarity];
     const item = document.createElement('div');
     item.className = 'shop-item inv-item skin-item' + (akSkin === id ? ' equipped' : '');
+    item.dataset.id = id;
     const t = skinTile(id);
     const b = document.createElement('b');
     b.textContent = sk.name + (shop.owned[id] > 1 ? ` ×${shop.owned[id]}` : '');
@@ -4500,6 +4761,76 @@ function renderSkinInventory() {
     note.textContent = '로그인하면 상점에서 뽑은 스킨이 여기 모여요';
     box.appendChild(note);
   }
+  renderCustomEditor();
+}
+
+// 나만의 스킨 editor (inventory): which gun, colour or picture, and a flat side-view preview
+const ce = { gun: 'rifle' };
+// rough side silhouettes in preview space (512×192): [role, x, y, w, h]
+const CE_SHAPES = {
+  rifle: [['wood', 20, 78, 120, 34], ['wood', 30, 108, 60, 36], ['metal', 140, 70, 170, 40], ['wood', 300, 80, 70, 26], ['metal', 370, 84, 120, 10],
+    ['mag', 250, 110, 40, 60], ['metal', 200, 108, 14, 34], ['metal', 310, 62, 40, 10]],
+  sniper: [['wood', 20, 82, 230, 40], ['wood', 40, 118, 70, 30], ['metal', 160, 74, 110, 22], ['metal', 270, 80, 220, 10],
+    ['metal', 170, 44, 120, 20], ['metal', 160, 40, 18, 28], ['metal', 285, 38, 22, 32], ['metal', 200, 96, 30, 26]],
+};
+function drawCustomPreview() {
+  const cv = $('ce-preview');
+  if (!cv) return;
+  const g = cv.getContext('2d'), cs = custom[ce.gun];
+  g.clearRect(0, 0, cv.width, cv.height);
+  const pic = cs.mode === 'image' && cs.img && cs.tex ? cs.tex.t.image : null;
+  for (const [role, x, y, w, h] of CE_SHAPES[ce.gun]) {
+    if (pic) g.drawImage(pic, x / 512 * pic.width, y / 192 * pic.height, w / 512 * pic.width, h / 192 * pic.height, x, y, w, h);
+    else { g.fillStyle = cs[role]; g.fillRect(x, y, w, h); }
+    g.strokeStyle = '#111'; g.lineWidth = 2; g.strokeRect(x, y, w, h);
+  }
+}
+function renderCustomEditor() {
+  const owned = ownsCustom();
+  $('custom-editor').classList.toggle('hidden', !owned);
+  $('ce-label').style.display = owned ? '' : 'none';
+  if (!owned) return;
+  const cs = custom[ce.gun];
+  for (const b of document.querySelectorAll('#ce-guns .btn')) b.classList.toggle('ghost', b.dataset.cg !== ce.gun);
+  for (const b of document.querySelectorAll('#ce-modes .btn')) b.classList.toggle('ghost', b.dataset.cm !== cs.mode);
+  $('ce-colors').classList.toggle('hidden', cs.mode !== 'color');
+  $('ce-image').classList.toggle('hidden', cs.mode !== 'image');
+  $('ce-mag').classList.toggle('hidden', ce.gun !== 'rifle');
+  $('ce-wood-label').firstChild.textContent = ce.gun === 'rifle' ? '나무 ' : '몸통 ';
+  for (const i of document.querySelectorAll('#custom-editor [data-cc]')) i.value = cs[i.dataset.cc];
+  for (const i of document.querySelectorAll('#custom-editor [data-ca]')) i.value = cs[i.dataset.ca];
+  const on = ce.gun === 'rifle' ? akSkin === 'custom' : cs.on;
+  $('ce-equip').textContent = on ? `${CUSTOM_GUNS[ce.gun]}에 장착됨 · 해제` : `${CUSTOM_GUNS[ce.gun]}에 장착`;
+  if (cs.mode === 'image' && cs.img) customTexture(ce.gun);   // preview draws from it
+  drawCustomPreview();
+}
+for (const b of document.querySelectorAll('#ce-guns .btn')) b.onclick = () => { ce.gun = b.dataset.cg; renderCustomEditor(); };
+for (const b of document.querySelectorAll('#ce-modes .btn')) b.onclick = () => {
+  custom[ce.gun].mode = b.dataset.cm;
+  customChanged(ce.gun);
+  renderCustomEditor();
+  if (b.dataset.cm === 'image' && !custom[ce.gun].img) $('ce-file').click();
+};
+for (const i of document.querySelectorAll('#custom-editor [data-cc]')) i.oninput = () => { custom[ce.gun][i.dataset.cc] = i.value; customChanged(ce.gun); renderSkinTiles(); };
+for (const i of document.querySelectorAll('#custom-editor [data-ca]')) i.onchange = () => { custom[ce.gun][i.dataset.ca] = +i.value; customChanged(ce.gun); renderSkinTiles(); };
+$('ce-pick').onclick = () => $('ce-file').click();
+$('ce-file').onchange = e => { setCustomImage(ce.gun, e.target.files[0]); e.target.value = ''; };
+$('ce-equip').onclick = async () => {
+  if (ce.gun === 'rifle') await equipSkin(akSkin === 'custom' ? 'default' : 'custom');
+  else { custom.sniper.on = !custom.sniper.on; saveCustom('sniper'); applySniperSkin(); }
+  renderCustomEditor();
+};
+$('ce-reset').onclick = () => {
+  const on = custom[ce.gun].on;
+  custom[ce.gun] = { ...CUSTOM_DEFAULT[ce.gun], on, tex: null };
+  customChanged(ce.gun);
+  renderCustomEditor();
+  renderSkinTiles();
+};
+// the 나만의 스킨 tile in the A-K skin list follows the editor
+function renderSkinTiles() {
+  const t = document.querySelector('#inv-skins .skin-item[data-id="custom"] .tile');
+  if (t) t.replaceWith(skinTile('custom'));
 }
 
 function renderLobby() {
@@ -5166,14 +5497,17 @@ function updateNet(dt) {
   }
 }
 
+let frameNo = 0;
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const raw = clock.getDelta(), dt = Math.min(raw, 0.05);
+  frameNo++;
   update(dt);
   updateNet(dt);
   updateBomb(dt);
-  drawMinimap();
+  if (frameNo % 2 === 0) drawMinimap();   // 30 times a second is plenty for dots
   updateChatVoice();
+  gfxFrame(raw);
   renderer.clear();
   renderer.render(scene, camera);
   renderer.clearDepth();
@@ -5216,6 +5550,104 @@ aspectSelect.addEventListener('change', e => setAspect(e.target.value));
 aspectButtons.forEach(b => b.addEventListener('click', () => setAspect(b.dataset.aspect)));
 syncAspectUI();
 applyAspect();
+
+// ── 그래픽 품질 · 60프레임 방어 ──
+// The screen resolution is never touched. What costs the most on weak laptop GPUs here is the sun's shadow:
+// high = 2048 soft shadows redrawn every frame, mid = 1024 plain shadows redrawn every other frame, low = none.
+// 자동 starts from the last level that held 60fps on this device, drops a level when it stays under ~55fps,
+// and tries one level up again after half a minute of steady 60.
+const GFX_TIERS = {
+  high: { shadows: true, size: 2048, type: THREE.PCFSoftShadowMap, every: 1, label: '높음' },
+  mid: { shadows: true, size: 1024, type: THREE.PCFShadowMap, every: 2, label: '중간' },
+  low: { shadows: false, label: '낮음' },
+};
+const TIER_ORDER = ['low', 'mid', 'high'];
+const gfx = { quality: 'auto', tier: null, sec: 0, frames: 0, bad: 0, good: 0, ceiling: 'high', raisedAt: -1e9 };
+try { if (TIER_ORDER.includes(localStorage.getItem('gfxAutoTier'))) gfx.autoTier = localStorage.getItem('gfxAutoTier'); } catch (e) { /* storage blocked */ }
+renderer.shadowMap.autoUpdate = false;
+function setTier(t) {
+  if (gfx.tier === t) return;
+  const T = GFX_TIERS[t], was = gfx.tier && GFX_TIERS[gfx.tier];
+  gfx.tier = t;
+  renderer.shadowMap.enabled = T.shadows;
+  dirLight.castShadow = T.shadows;
+  if (T.shadows) {
+    renderer.shadowMap.type = T.type;
+    if (dirLight.shadow.mapSize.x !== T.size) {
+      dirLight.shadow.mapSize.set(T.size, T.size);
+      if (dirLight.shadow.map) { dirLight.shadow.map.dispose(); dirLight.shadow.map = null; }
+    }
+    renderer.shadowMap.needsUpdate = true;
+  }
+  if (!was || was.shadows !== T.shadows || was.type !== T.type) scene.traverse(o => {
+    if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;   // shaders change with the shadow setup
+  });
+  if (gfx.quality === 'auto') { try { localStorage.setItem('gfxAutoTier', t); } catch (e) { /* storage blocked */ } }
+  gfxNote();
+}
+function gfxNote() {
+  $('gfx-note').textContent = gfx.quality === 'auto' ? `지금: ${GFX_TIERS[gfx.tier].label} · 해상도는 그대로, 프레임이 떨어지면 그림자부터 줄여요` : '해상도는 그대로 두고 그림자 품질만 조절해요';
+}
+function setQuality(q) {
+  gfx.quality = GFX_TIERS[q] || q === 'auto' ? q : 'auto';
+  gfx.bad = gfx.good = 0;
+  gfx.ceiling = 'high';
+  setTier(gfx.quality === 'auto' ? (gfx.autoTier || gfx.tier || 'high') : gfx.quality);
+  gfxNote();
+}
+function gfxFrame(raw) {
+  const T = GFX_TIERS[gfx.tier];
+  if (T.shadows && frameNo % T.every === 0) renderer.shadowMap.needsUpdate = true;
+  gfx.sec += raw; gfx.frames++;
+  if (gfx.sec < 1) return;
+  const fps = gfx.frames / gfx.sec;
+  gfx.sec = 0; gfx.frames = 0;
+  $('fps-meter').textContent = `${Math.round(fps)} FPS · ${T.label}`;
+  if (gfx.quality !== 'auto' || !inGame() || document.hidden) { gfx.bad = gfx.good = 0; return; }
+  const i = TIER_ORDER.indexOf(gfx.tier);
+  if (fps < 55) {
+    gfx.good = 0;
+    if (++gfx.bad >= 2 && i > 0) {
+      if (performance.now() - gfx.raisedAt < 15000) gfx.ceiling = gfx.tier === 'high' ? 'mid' : 'low';   // the level we just tried is too much here
+      gfx.bad = 0;
+      setTier(TIER_ORDER[i - 1]);
+    }
+  } else if (fps >= 58.5) {
+    gfx.bad = 0;
+    if (++gfx.good >= 30 && i < TIER_ORDER.indexOf(gfx.ceiling)) { gfx.good = 0; gfx.raisedAt = performance.now(); setTier(TIER_ORDER[i + 1]); }
+  } else gfx.bad = gfx.good = 0;
+}
+$('gfx-quality').onchange = e => setQuality(e.target.value);
+$('gfx-aa').checked = gfxAA;
+$('gfx-aa').onchange = e => { try { localStorage.setItem('gfxAA', e.target.checked ? '1' : '0'); } catch (err) { /* storage blocked */ } $('gfx-note').textContent = '안티앨리어싱은 새로고침하면 바뀌어요'; };
+$('gfx-fps').onchange = e => $('fps-meter').classList.toggle('show', e.target.checked);
+// the settings floating over the game go away once we are back on the main screen
+setInterval(() => {
+  const sp = $('settings-panel');
+  if (!inGame() && !sp.classList.contains('in-page') && sp.classList.contains('visible')) sp.classList.remove('visible');
+}, 500);
+
+// ── 설정 저장: every control in the settings panel is remembered on this device ──
+const SAVED_SETTINGS = ['sens-slider', 'dist-slider', 'fov-slider', 'invert-y', 'vol-slider', 'voice-slider', 'gfx-quality', 'gfx-fps'];
+(() => {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('settings') || '{}'); } catch (e) { /* storage blocked or bad data */ }
+  for (const id of SAVED_SETTINGS) {
+    const el = $(id);
+    if (!(id in saved)) continue;
+    if (el.type === 'checkbox') el.checked = !!saved[id]; else el.value = saved[id];
+    el.dispatchEvent(new Event(el.type === 'range' ? 'input' : 'change'));
+  }
+  if (!('gfx-quality' in saved)) setQuality('auto');
+  if ('sens-slider' in saved) $('sens-input').value = saved['sens-slider'];
+  const save = () => {
+    const out = {};
+    for (const id of SAVED_SETTINGS) { const el = $(id); out[id] = el.type === 'checkbox' ? el.checked : el.value; }
+    try { localStorage.setItem('settings', JSON.stringify(out)); } catch (e) { /* storage blocked */ }
+  };
+  $('settings-panel').addEventListener('input', save);
+  $('settings-panel').addEventListener('change', save);
+})();
 
 animate();
 </script>
