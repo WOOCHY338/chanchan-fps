@@ -4010,10 +4010,22 @@ $('rk-logout').onclick = async () => {
 // (same size), else hosts one and lists it. Two lone hosts that find each other merge (lower code wins).
 // When the room is full it starts by itself; the lobby is never shown.
 const queue = { on: false, start: 0, tick: null, retry: null };
+// The board's freshness check compares timestamps from different PCs, and school PCs' clocks can be minutes off,
+// which hides every room. All board times use the Supabase server's clock (its Date header) instead.
+let clockSkew = 0, clockSynced = false;
+const boardTime = (ago = 0) => new Date(Date.now() + clockSkew - ago).toISOString();
+async function syncClock() {
+  try {
+    const t0 = Date.now();
+    const r = await fetch(SUPABASE_URL + '/rest/v1/ranked_rooms?select=code&limit=1', { headers: { apikey: SUPABASE_KEY }, cache: 'no-store' });
+    const server = Date.parse(r.headers.get('date'));
+    if (server) { clockSkew = server + 500 - (t0 + Date.now()) / 2; clockSynced = true; }   // Date has 1 s resolution
+  } catch (e) { /* keep the local clock */ }
+}
 function rankedQuery(size, d) {
   return sb.from('ranked_rooms').select('*').eq('status', 'open').eq('size', size)
     .gte('host_division', d - 1).lte('host_division', d + 1)
-    .gte('updated_at', new Date(Date.now() - 30000).toISOString());
+    .gte('updated_at', boardTime(30000));
 }
 function startQueueScreen() {
   queue.on = true;
@@ -4058,6 +4070,7 @@ async function rankedMatch(again = false) {
   clearRemotes();
   net.mode = 'menu'; net.players = []; net.room = null;
   if (again !== true) startQueueScreen();
+  if (!clockSynced) await syncClock();
   const size = account.size, mode = size + 'v' + size, d = account.profile.division;
   const { data, error } = await rankedQuery(size, d).order('players', { ascending: false }).limit(20);
   if (!queue.on) return;
@@ -4069,12 +4082,13 @@ async function rankedMatch(again = false) {
   for (let i = 0; i < 40 && !(net.hostRoom && net.room); i++) await new Promise(r => setTimeout(r, 250));
   if (!queue.on || !net.hostRoom || !net.room) return;
   account.listing = net.room;
-  await sb.from('ranked_rooms').upsert({ code: net.room, host_id: account.user.id, host_division: d, size, max_players: size * 2,
-    players: 1, status: 'open', updated_at: new Date().toISOString() });
+  const { error: listError } = await sb.from('ranked_rooms').upsert({ code: net.room, host_id: account.user.id, host_division: d, size, max_players: size * 2,
+    players: 1, status: 'open', updated_at: boardTime() });
+  if (listError) { console.warn('ranked listing failed', listError); $('q-status').textContent = '매칭 서버 오류 · 다시 시도 중'; return requeue(); }
   account.beat = setInterval(() => {
     if (!account.listing || account.listing !== net.room) return;
     sb.from('ranked_rooms').update({ players: (net.players || []).length, status: net.mode === 'lobby' ? 'open' : 'playing',
-      updated_at: new Date().toISOString() }).eq('code', account.listing).then(() => {});
+      updated_at: boardTime() }).eq('code', account.listing).then(() => {});
   }, 10000);
   // still alone? if someone else is also waiting alone, the one with the higher code joins the other
   account.merge = setInterval(async () => {
