@@ -914,12 +914,12 @@ const dirLight = new THREE.DirectionalLight(0xfff5e6, 1.4);
 dirLight.position.set(15, 25, 10);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.set(2048, 2048);
-dirLight.shadow.camera.left = -30;
-dirLight.shadow.camera.right = 30;
-dirLight.shadow.camera.top = 30;
-dirLight.shadow.camera.bottom = -30;
+dirLight.shadow.camera.left = -42;
+dirLight.shadow.camera.right = 42;
+dirLight.shadow.camera.top = 42;
+dirLight.shadow.camera.bottom = -42;
 dirLight.shadow.camera.near = 0.5;
-dirLight.shadow.camera.far = 80;
+dirLight.shadow.camera.far = 110;
 dirLight.shadow.bias = -0.001;
 scene.add(dirLight);
 
@@ -937,7 +937,7 @@ function paperMaterial(color) {
 }
 
 // ── FLOOR ──
-const floorGeo = new THREE.BoxGeometry(60, 0.4, 60);
+const floorGeo = new THREE.BoxGeometry(84, 0.4, 84);   // fits the scaled-up 폭탄전 map
 const floorMat = paperMaterial(0x8fbc8f);
 const floor = new THREE.Mesh(floorGeo, floorMat);
 floor.position.y = -0.2;
@@ -945,7 +945,7 @@ floor.receiveShadow = true;
 scene.add(floor);
 
 // grid lines on floor
-const gridHelper = new THREE.GridHelper(60, 30, 0x6a9a6a, 0x6a9a6a);
+const gridHelper = new THREE.GridHelper(84, 42, 0x6a9a6a, 0x6a9a6a);
 gridHelper.position.y = 0.01;
 gridHelper.material.opacity = 0.3;
 gridHelper.material.transparent = true;
@@ -1036,6 +1036,15 @@ const MAPS = {
     ],
   },
 };
+// 폭탄전 map enlarged 1.4× across the ground (heights unchanged): walls and corridors stretch,
+// crates (anything shorter than 3 m) keep their size and only move; sites and callouts follow
+const BOMB_SCALE = 1.4;
+MAPS.bomb.boxes = MAPS.bomb.boxes.map(([x, y, z, sx, sy, sz, c]) => sy >= 3
+  ? [x * BOMB_SCALE, y, z * BOMB_SCALE, sx * BOMB_SCALE, sy, sz * BOMB_SCALE, c]
+  : [x * BOMB_SCALE, y, z * BOMB_SCALE, sx, sy, sz, c]);
+MAPS.bomb.bound = MAPS.bomb.bound.map(v => v * BOMB_SCALE);
+MAPS.bomb.labels = MAPS.bomb.labels.map(([t, x, z]) => [t, x * BOMB_SCALE, z * BOMB_SCALE]);
+for (const st of BOMB_SITES) { st.x *= BOMB_SCALE; st.z *= BOMB_SCALE; st.hw *= BOMB_SCALE; st.hd *= BOMB_SCALE; }
 let currentMap = 'arena';
 
 // floor paint: site squares with a big letter, plus callout names. Read upright by attackers coming from the south.
@@ -3270,9 +3279,9 @@ const SPAWNS = {
 };
 // 폭탄전 (Wingman-style): sides swap every round, first to 5 still wins
 const BOMB = { roundTime: 60, fuse: 35, plantTime: 3, defuseTime: 5, defuseRange: 2.2, pickupRange: 1.4 };
-const BOMB_SPAWNS = {
-  attack: [[-2, -21, 0], [2, -21, 0], [0, -22.5, 0], [-4.5, -22, 0], [4.5, -22, 0]],
-  defense: [[-2, 21.5, 180], [2, 21.5, 180], [0, 23, 180], [-4.5, 22, 180], [4.5, 22, 180]],
+const BOMB_SPAWNS = {   // same spots as before, on the 1.4× map
+  attack: [[-2, -21, 0], [2, -21, 0], [0, -22.5, 0], [-4.5, -22, 0], [4.5, -22, 0]].map(([x, z, y]) => [x * BOMB_SCALE, z * BOMB_SCALE, y]),
+  defense: [[-2, 21.5, 180], [2, 21.5, 180], [0, 23, 180], [-4.5, 22, 180], [4.5, 22, 180]].map(([x, z, y]) => [x * BOMB_SCALE, z * BOMB_SCALE, y]),
 };
 // which site (if any) a position is inside
 const inSite = (x, z) => (BOMB_SITES.find(st => Math.abs(x - st.x) <= st.hw + 0.3 && Math.abs(z - st.z) <= st.hd + 0.3) || {}).name || null;
