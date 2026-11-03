@@ -26,14 +26,14 @@
 - 보이스: PeerJS 미디어 풀메시, V 팀 / U 전체.
 - 경쟁전: `rankedMatch`, `startQueueScreen`, `ranked_rooms` 테이블, 티어 `divName` (스톤1 → 챌린저2, 챔피언 = 상위 5명).
 - 상점: `AK_SKINS`, `RARITY`, `GEM_LOOKS`/`gemTexture`(케이스 하드닝 텍스처), `applyAkSkin`, `openCase`, `buyItem`, `ITEM_PRICE`, `refreshShop`.
-- 나만의 스킨: `custom`, `CUSTOM_GUNS`(rifle·sniper), `applyCustom`, `applySniperSkin`, `setCustomImage`, `renderCustomEditor`. 디자인은 localStorage(`custom_rifle`/`custom_sniper`)에만 저장 → 본인만 보임. 구매는 서버(`buy_item('custom')`, 100크레딧, skins_owned.skin='custom').
+- 나만의 스킨: `custom`, `CUSTOM_GUNS`(rifle·sniper), `applyCustom`, `applySniperSkin`, `setCustomImage`, `renderCustomEditor`. 디자인은 **계정에 저장** (`custom_skins` 테이블, 본인만 읽기 / `save_custom_skin(gun, design)` RPC, 0.6초 디바운스) → 어느 기기에서 로그인해도 같고 남은 못 봄. `loadCustom()`이 로그인 시 불러오고 로그아웃 시 초기화. 구매는 서버(`buy_item('custom')`, 100크레딧, skins_owned.skin='custom').
 - 스킨 UV: `skinParts()`가 총 옆면 기준 두 번째 UV(`uvSkin`)를 만들어서 텍스처 스킨이 총 전체에 이어지게 함 (u: 개머리판 0 → 총구 1).
 - 설정: `#settings-panel` 하나를 메인 화면 "설정" 페이지(`#settings-home`, class `in-page`)와 게임 중 ESC(떠 있는 패널) 사이에서 옮겨 씀. 값은 localStorage `settings`(JSON)에 저장 (`SAVED_SETTINGS`).
 - 그래픽: `GFX_TIERS` (high/mid/low = 그림자 품질), `setQuality`, `setTier`, `gfxFrame`(FPS 측정 + 자동 조절). **해상도는 절대 낮추지 않음** (사용자 친구들이 싫어함). 안티앨리어싱은 `gfxAA`(새로고침 후 적용).
 - 메인 루프: `function animate()`.
 
 ## Supabase 서버 함수 (supabase_shop.sql)
-- 크레딧·뽑기·랭크 변경은 전부 security definer RPC에서만: `report_result`, `shop_status`, `claim_reward('playtime'|'ranked3'|'win1')`, `open_case`, `equip_skin`, `buy_item('karambit'|'custom')`.
+- 크레딧·뽑기·랭크 변경은 전부 security definer RPC에서만: `report_result`, `shop_status`, `claim_reward('playtime'|'ranked3'|'win1')`, `open_case`, `equip_skin`, `buy_item('karambit'|'custom')`. 나만의 스킨 디자인: `save_custom_skin` + 테이블 `custom_skins`(PK user_id+gun, design jsonb ≤ 1MB).
 - `_my_profile`(내부용, 한국 자정에 일일 카운터 초기화), `admin_give_credits`(SQL Editor 전용).
 - 슈퍼 계정: `profiles.super = true` → 모든 스킨/칼/나만의 스킨 보유 취급. `square15678`(사용자 본인 계정)이 슈퍼, 999,999 크레딧.
 - SQL을 바꾸면 supabase_shop.sql 끝에 추가 + 대시보드 SQL Editor에서 실행 (Monaco: `monaco.editor.getModels()[0].setValue(sql)` 후 Run 버튼).
@@ -44,6 +44,7 @@
 - Windows 경로가 길어서 git은 `git -c core.longpaths=true ...`.
 
 ## 작업 기록 (최신이 위)
+- 2026-11-03: 나만의 스킨 디자인을 브라우저(localStorage) 대신 계정(Supabase `custom_skins`)에 저장하도록 변경.
 - 2026-11-03: 블루젬 A-K를 실제 CS2 케이스 하드닝 #661처럼 다시 만듦 (총 전체에 이어지는 패턴, 광택 금속). 레드젬도 같은 방식.
   - 나만의 스킨 (A-K·저격총, 100크레딧): 부위별 색상 조정 또는 PNG 그림 + 색조/채도/밝기 조절.
   - ESC 설정을 메인 화면 "설정" 페이지로 옮기고 기기에 저장. 그래픽 설정(자동 60프레임 방어/높음/중간/낮음, 안티앨리어싱, FPS 표시) 추가.

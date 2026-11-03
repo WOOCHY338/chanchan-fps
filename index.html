@@ -477,7 +477,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       </div>
       <div class="inv-label">A-K 스킨 <small>상점의 노이펙트 상자에서 뽑아요</small></div>
       <div class="shop-grid" id="inv-skins"></div>
-      <div class="inv-label" id="ce-label">나만의 스킨 만들기 <small>이 기기에 저장돼요 · 나만 보여요</small></div>
+      <div class="inv-label" id="ce-label">나만의 스킨 만들기 <small>계정에 저장돼요 · 다른 기기에서도 그대로 · 나만 보여요</small></div>
       <div id="custom-editor" class="hidden">
         <div class="row" id="ce-guns"><button class="btn" data-cg="rifle">A-K</button><button class="btn" data-cg="sniper">저격총</button></div>
         <div class="row" id="ce-modes"><button class="btn" data-cm="color">색상 조정</button><button class="btn" data-cm="image">그림 넣기 (PNG)</button></div>
@@ -4482,22 +4482,41 @@ function applyAkSkin(id) {
 }
 
 // ── 나만의 스킨 (A-K · 저격총): pick colours for each part, or put in a picture (with hue / saturation / brightness).
-// Bought once on the server (100 찬크레딧); the design itself stays on this device, so only you see it.
+// Bought once on the server (100 찬크레딧). The design is saved with the account (custom_skins table, readable only
+// by its owner), so it follows you to any device you log in on and nobody else sees it.
 const CUSTOM_GUNS = { rifle: 'A-K', sniper: '저격총' };
 const CUSTOM_DEFAULT = {
   rifle: { mode: 'color', metal: '#45413d', wood: '#c8682c', mag: '#b8561f', img: null, hue: 0, sat: 100, bright: 100, on: false },
   sniper: { mode: 'color', metal: '#45413d', wood: '#5d6e45', mag: '#45413d', img: null, hue: 0, sat: 100, bright: 100, on: false },
 };
 const custom = {};
-for (const g of Object.keys(CUSTOM_GUNS)) {
-  custom[g] = { ...CUSTOM_DEFAULT[g] };
-  try { Object.assign(custom[g], JSON.parse(localStorage.getItem('custom_' + g) || '{}')); } catch (e) { /* storage blocked or bad data */ }
-  custom[g].tex = null;
+function resetCustom(g, design) {
+  if (custom[g] && custom[g].tex) { const t = custom[g].tex; t.t.dispose(); t.steel.dispose(); t.wood.dispose(); }
+  custom[g] = { ...CUSTOM_DEFAULT[g], ...(design || {}), tex: null };
 }
+for (const g of Object.keys(CUSTOM_GUNS)) resetCustom(g);
 const ownsCustom = () => !!(account.profile && (account.profile.super || shop.owned.custom));
+// account designs: loaded with the shop after login, cleared on logout
+async function loadCustom() {
+  for (const g of Object.keys(CUSTOM_GUNS)) resetCustom(g);
+  if (sb && account.profile && ownsCustom()) {
+    const { data } = await sb.from('custom_skins').select('gun, design');
+    for (const r of data || []) if (CUSTOM_GUNS[r.gun]) resetCustom(r.gun, r.design);
+  }
+  if (akSkin === 'custom') applyCustom('rifle');
+  applySniperSkin();
+  if (typeof renderCustomEditor === 'function') renderCustomEditor();
+}
+// saving goes to the server a moment after the last change (colour pickers fire a lot)
+const customSaveT = {};
 function saveCustom(g) {
-  const { tex, ...data } = custom[g];
-  try { localStorage.setItem('custom_' + g, JSON.stringify(data)); return true; } catch (e) { return false; }
+  clearTimeout(customSaveT[g]);
+  customSaveT[g] = setTimeout(async () => {
+    if (!sb || !ownsCustom()) return;
+    const { tex, ...design } = custom[g];
+    const { error } = await sb.rpc('save_custom_skin', { gun: g, design });
+    if (error) shopToast('스킨 저장 실패: ' + error.message);
+  }, 600);
 }
 // the picture, drawn with the colour adjustments into the decal texture (async: the image loads, then it updates)
 function customTexture(g) {
@@ -4541,7 +4560,7 @@ function applySniperSkin() {
 function customChanged(g) {
   const cs = custom[g];
   if (cs.tex) { cs.tex.t.dispose(); cs.tex.steel.dispose(); cs.tex.wood.dispose(); cs.tex = null; }
-  if (!saveCustom(g)) shopToast('그림이 너무 커서 이 기기에 저장을 못 했어요');
+  saveCustom(g);
   if (g === 'rifle' && akSkin === 'custom') applyCustom('rifle');
   if (g === 'sniper') applySniperSkin();
   drawCustomPreview();
@@ -4556,7 +4575,7 @@ function setCustomImage(g, file) {
     URL.revokeObjectURL(img.src);
     const cs = custom[g];
     cs.img = c.toDataURL(/png/.test(file.type) ? 'image/png' : 'image/jpeg', 0.9);
-    if (cs.img.length > 1500000) cs.img = c.toDataURL('image/jpeg', 0.85);   // keep it small enough for this device's storage
+    for (const q of [0.85, 0.7, 0.5]) if (cs.img.length > 700000) cs.img = c.toDataURL('image/jpeg', q);   // the server takes up to ~1MB
     cs.mode = 'image';
     customChanged(g);
     renderCustomEditor();
@@ -4592,14 +4611,14 @@ function renderCredits() {
 }
 // today's status (and starts the server's 10-minute clock), owned skins, then repaint everything
 async function refreshShop() {
-  if (!sb || !account.profile) { shop.owned = {}; applySniperSkin(); renderCredits(); renderQuests(); renderSkinInventory(); checkKnifeOwnership(); return; }
+  if (!sb || !account.profile) { shop.owned = {}; loadCustom(); renderCredits(); renderQuests(); renderSkinInventory(); checkKnifeOwnership(); return; }
   const { data } = await sb.rpc('shop_status');
   if (data) account.profile = { ...account.profile, ...data };
   const { data: rows } = await sb.from('skins_owned').select('skin');
   shop.owned = {};
   for (const r of rows || []) shop.owned[r.skin] = (shop.owned[r.skin] || 0) + 1;
   applyAkSkin(account.profile.equipped_skin || 'default');
-  applySniperSkin();
+  await loadCustom();
   renderCredits(); renderQuests(); renderSkinInventory(); renderShop();
   checkKnifeOwnership();
   schedulePlaytime();
@@ -4822,7 +4841,7 @@ $('ce-equip').onclick = async () => {
 };
 $('ce-reset').onclick = () => {
   const on = custom[ce.gun].on;
-  custom[ce.gun] = { ...CUSTOM_DEFAULT[ce.gun], on, tex: null };
+  resetCustom(ce.gun, { on });
   customChanged(ce.gun);
   renderCustomEditor();
   renderSkinTiles();

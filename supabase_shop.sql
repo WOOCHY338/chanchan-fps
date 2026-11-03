@@ -195,3 +195,30 @@ begin
   return json_build_object('item', item, 'credits', p.credits - price);
 end $$;
 grant execute on function public.buy_item(text) to authenticated;
+
+-- ── 나만의 스킨 디자인을 계정에 저장 (본인만 읽기 가능) ──
+create table if not exists public.custom_skins (
+  user_id uuid not null references auth.users on delete cascade,
+  gun text not null check (gun in ('rifle', 'sniper')),
+  design jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, gun)
+);
+alter table public.custom_skins enable row level security;
+drop policy if exists "own custom skins readable" on public.custom_skins;
+create policy "own custom skins readable" on public.custom_skins for select to authenticated using (user_id = auth.uid());
+
+create or replace function public.save_custom_skin(gun text, design jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare p public.profiles;
+begin
+  p := public._my_profile();
+  if not p.super and not exists (select 1 from public.skins_owned where user_id = p.id and skin = 'custom') then
+    raise exception '나만의 스킨을 먼저 사야 해요';
+  end if;
+  if gun not in ('rifle', 'sniper') then raise exception '이 총에는 못 넣어요'; end if;
+  if length(design::text) > 1000000 then raise exception '그림이 너무 커요'; end if;
+  insert into public.custom_skins (user_id, gun, design, updated_at) values (p.id, save_custom_skin.gun, save_custom_skin.design, now())
+    on conflict (user_id, gun) do update set design = excluded.design, updated_at = now();
+end $$;
+grant execute on function public.save_custom_skin(text, jsonb) to authenticated;
