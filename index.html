@@ -248,7 +248,9 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 #custom-editor label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
 #custom-editor input[type=color] { width: 38px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; }
 #custom-editor input[type=range] { width: 130px; }
-#ce-preview { width: 100%; max-width: 512px; height: auto; align-self: flex-start; background: #1b1e25; border-radius: 6px; }
+#ce-preview { width: 100%; max-width: 680px; height: auto; align-self: flex-start; background: #1b1e25; border-radius: 6px; touch-action: none; }
+#ce-sel.off { opacity: 0.45; }
+#ce-colors, #ce-sel { font-size: 13px; font-weight: 700; }
 #ce-image.hidden, #ce-colors.hidden, #ce-mag.hidden, #ce-mag-part.hidden { display: none; }
 #ce-parts { font-size: 13px; font-weight: 700; }
 .inv-label { font-weight: 800; font-size: 15px; color: #fff; margin-top: 4px; }
@@ -481,32 +483,29 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <div class="inv-label" id="ce-label">나만의 스킨 만들기 <small>계정에 저장돼요 · 다른 기기에서도 그대로 · 나만 보여요</small></div>
       <div id="custom-editor" class="hidden">
         <div class="row" id="ce-guns"><button class="btn" data-cg="rifle">A-K</button><button class="btn" data-cg="sniper">저격총</button></div>
-        <div class="row" id="ce-modes"><button class="btn" data-cm="color">색상 조정</button><button class="btn" data-cm="image">그림 넣기 (PNG)</button></div>
-        <div class="row" id="ce-colors">
+        <div class="row" id="ce-colors">색상
           <label>금속 <input type="color" data-cc="metal"></label>
           <label id="ce-wood-label">나무 <input type="color" data-cc="wood"></label>
           <label id="ce-mag">탄창 <input type="color" data-cc="mag"></label>
         </div>
-        <div id="ce-image">
-          <div class="row"><button class="btn ghost" id="ce-pick">사진 고르기</button><input type="file" id="ce-file" accept="image/png,image/jpeg,image/webp" hidden>
-            <span class="sub">왼쪽이 개머리판, 오른쪽이 총구 · 사진 없는 곳은 위 색상</span></div>
-          <div class="row" id="ce-parts">사진 넣을 부분
-            <label><input type="checkbox" data-cp="metal"> 금속</label>
-            <label><input type="checkbox" data-cp="wood"> <span id="ce-wood-part">나무</span></label>
-            <label id="ce-mag-part"><input type="checkbox" data-cp="mag"> 탄창</label>
-          </div>
-          <div class="row">
-            <label>좌우 <input type="range" data-cl="px" min="0" max="100" step="1"></label>
-            <label>위아래 <input type="range" data-cl="py" min="0" max="100" step="1"></label>
-            <label>크기 <input type="range" data-cl="size" min="5" max="150" step="1"></label>
-          </div>
-          <div class="row">
-            <label>색조 <input type="range" data-ca="hue" min="-180" max="180" step="1"></label>
-            <label>채도 <input type="range" data-ca="sat" min="0" max="200" step="1"></label>
-            <label>밝기 <input type="range" data-ca="bright" min="30" max="200" step="1"></label>
-          </div>
+        <div class="row">
+          <button class="btn accent" id="ce-add">+ 스티커 붙이기 (사진)</button><input type="file" id="ce-file" accept="image/png,image/jpeg,image/webp" hidden>
+          <button class="btn ghost" id="ce-front">맨 앞으로</button>
+          <button class="btn ghost" id="ce-del">지우기</button>
+          <span class="sub" id="ce-count"></span>
         </div>
-        <canvas id="ce-preview" width="512" height="192"></canvas>
+        <div class="sub">스티커를 끌어서 옮기고 · <b>■</b> 끌어서 크기 · <b>●</b> 끌어서 회전 · 휠: 크기, Shift+휠: 회전</div>
+        <canvas id="ce-preview" width="1024" height="400"></canvas>
+        <div class="row" id="ce-sel">선택한 스티커
+          <label>색조 <input type="range" data-ca="hue" min="-180" max="180" step="1" value="0"></label>
+          <label>채도 <input type="range" data-ca="sat" min="0" max="200" step="1" value="100"></label>
+          <label>밝기 <input type="range" data-ca="bright" min="30" max="200" step="1" value="100"></label>
+        </div>
+        <div class="row" id="ce-parts">스티커가 붙는 부분
+          <label><input type="checkbox" data-cp="metal"> 금속</label>
+          <label><input type="checkbox" data-cp="wood"> <span id="ce-wood-part">나무</span></label>
+          <label id="ce-mag-part"><input type="checkbox" data-cp="mag"> 탄창</label>
+        </div>
         <div class="row"><button class="btn accent" id="ce-equip">장착</button><button class="btn ghost" id="ce-reset">처음으로</button></div>
       </div>
       <div class="inv-label">칼</div>
@@ -4442,13 +4441,28 @@ function skinParts(root, roleOf) {
     for (let i = 0; i < pos.count; i++) f(v.fromBufferAttribute(pos, i).applyMatrix4(m), i);
   };
   for (const p of parts) each(p, q => { z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); });
+  // uvDecal (나만의 스킨) uses a texture of two halves: the top half for the right side (and top/bottom faces),
+  // the bottom half for faces looking left, where the picture is drawn mirrored in place so text reads the right
+  // way on the side the player actually sees in game
+  const nm = new THREE.Matrix3(), n = new THREE.Vector3();
   for (const p of parts) {
     const geo = p.mesh.geometry;
     p.uvPaper = geo.attributes.uv;
-    const uv = new Float32Array(geo.attributes.position.count * 2);
-    each(p, (q, i) => { uv[i * 2] = (z1 - q.z) / (z1 - z0); uv[i * 2 + 1] = (q.y - y0) / (y1 - y0); });
+    const uv = new Float32Array(geo.attributes.position.count * 2), dec = new Float32Array(uv.length);
+    const nor = geo.attributes.normal;
+    nm.getNormalMatrix(m.multiplyMatrices(inv, p.mesh.matrixWorld));
+    each(p, (q, i) => {
+      const u = (z1 - q.z) / (z1 - z0), w = (q.y - y0) / (y1 - y0);
+      uv[i * 2] = dec[i * 2] = u;
+      uv[i * 2 + 1] = w;
+      const left = nor && n.fromBufferAttribute(nor, i).applyMatrix3(nm).x < -0.5;
+      dec[i * 2 + 1] = left ? w * 0.5 : 0.5 + w * 0.5;
+    });
     p.uvSkin = new THREE.BufferAttribute(uv, 2);
+    p.uvDecal = new THREE.BufferAttribute(dec, 2);
   }
+  parts.aspect = (y1 - y0) / (z1 - z0);
+  parts.box = { z0, z1, y0, y1 };   // height / length of the gun's side, so pictures keep their shape
   return parts;
 }
 const akParts = skinParts(gun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C.wood || hex === C.woodDark ? 'wood' : hex === C.mag ? 'mag' : null);
@@ -4492,16 +4506,17 @@ function applyAkSkin(id) {
   });
 }
 
-// ── 나만의 스킨 (A-K · 저격총): pick colours for each part, or put in a picture (with hue / saturation / brightness).
-// Bought once on the server (100 찬크레딧). The design is saved with the account (custom_skins table, readable only
-// by its owner), so it follows you to any device you log in on and nobody else sees it.
+// ── 나만의 스킨 (A-K · 저격총): a colour for each part, plus stickers (your own pictures) you drag, resize and
+// rotate on the gun like CS2 / 카트 stickers. Bought once on the server (100 찬크레딧). The design is saved with
+// the account (custom_skins table, readable only by its owner), so it follows you to any device you log in on.
 const CUSTOM_GUNS = { rifle: 'A-K', sniper: '저격총' };
 const CUSTOM_DEFAULT = {
-  rifle: { mode: 'color', metal: '#45413d', wood: '#c8682c', mag: '#b8561f', img: null, hue: 0, sat: 100, bright: 100, on: false,
-    parts: { metal: true, wood: true, mag: true }, px: 50, py: 50, size: 100 },
-  sniper: { mode: 'color', metal: '#45413d', wood: '#5d6e45', mag: '#45413d', img: null, hue: 0, sat: 100, bright: 100, on: false,
-    parts: { metal: true, wood: true, mag: true }, px: 50, py: 50, size: 100 },
+  rifle: { metal: '#45413d', wood: '#c8682c', mag: '#b8561f', on: false, parts: { metal: true, wood: true, mag: true }, stickers: [] },
+  sniper: { metal: '#45413d', wood: '#5d6e45', mag: '#45413d', on: false, parts: { metal: true, wood: true, mag: true }, stickers: [] },
 };
+const MAX_STICKERS = 8;
+// sticker: img (data URL), x / y = centre on the gun's side (0..1, x from the stock, y from the bottom),
+// s = width as a share of the gun's length, r = rotation (radians), hue / sat / bright = colour adjustments
 const custom = {};
 function dropCustomTex(cs) {
   for (const r of Object.values(cs.tex || {})) { r.t.dispose(); r.mat.dispose(); }
@@ -4509,9 +4524,17 @@ function dropCustomTex(cs) {
 }
 function resetCustom(g, design) {
   if (custom[g]) dropCustomTex(custom[g]);
-  const d = { ...CUSTOM_DEFAULT[g], ...(design || {}) };
-  d.parts = { ...CUSTOM_DEFAULT[g].parts, ...(design && design.parts || {}) };
-  custom[g] = { ...d, tex: null };
+  const d = design || {};
+  let stickers = Array.isArray(d.stickers) ? d.stickers : [];
+  if (!d.stickers && d.img && d.mode === 'image') {   // designs saved before stickers: one picture
+    stickers = [{ img: d.img, x: (d.px ?? 50) / 100, y: (d.py ?? 50) / 100, s: (d.size ?? 100) / 100, r: 0, hue: d.hue || 0, sat: d.sat ?? 100, bright: d.bright ?? 100 }];
+  }
+  custom[g] = {
+    metal: d.metal || CUSTOM_DEFAULT[g].metal, wood: d.wood || CUSTOM_DEFAULT[g].wood, mag: d.mag || CUSTOM_DEFAULT[g].mag, on: !!d.on,
+    parts: { ...CUSTOM_DEFAULT[g].parts, ...(d.parts || {}) },
+    stickers: stickers.map(st => ({ ...st })),
+    tex: null,
+  };
 }
 for (const g of Object.keys(CUSTOM_GUNS)) resetCustom(g);
 const ownsCustom = () => !!(account.profile && (account.profile.super || shop.owned.custom));
@@ -4526,60 +4549,82 @@ async function loadCustom() {
   applySniperSkin();
   if (typeof renderCustomEditor === 'function') renderCustomEditor();
 }
-// saving goes to the server a moment after the last change (colour pickers fire a lot)
+const customDesign = g => { const { tex, ...design } = custom[g]; return design; };   // tex is this device's GPU copy
+// saving goes to the server a moment after the last change (colour pickers and dragging fire a lot)
 const customSaveT = {};
 function saveCustom(g) {
   clearTimeout(customSaveT[g]);
   customSaveT[g] = setTimeout(async () => {
     if (!sb || !ownsCustom()) return;
-    const { tex, ...design } = custom[g];   // tex is this device's GPU copy, not part of the design
+    const design = customDesign(g);
+    if (JSON.stringify(design).length > 950000) return shopToast('스티커 사진 용량이 너무 커서 저장을 못 했어요 · 몇 장 지워 주세요');
     const { error } = await sb.rpc('save_custom_skin', { gun: g, design });
     if (error) shopToast('스킨 저장 실패: ' + error.message);
   }, 600);
 }
-// decoded pictures, kept so moving the picture around doesn't decode it again
+// decoded pictures, kept so dragging a sticker around doesn't decode it again
 const customImgs = {};
 function customImage(src, done) {
   const c = customImgs[src];
-  if (c) return c.complete ? c : (c.addEventListener('load', done), null);
+  if (c) { if (!c.complete) c.addEventListener('load', done, { once: true }); return c.complete ? c : null; }
   const img = customImgs[src] = new Image();
-  img.addEventListener('load', done);
+  img.addEventListener('load', done, { once: true });
   img.src = src;
   return null;
 }
-// one decal texture per part kind that gets the picture: the part's own colour with the picture placed on top
-// (px / py = picture centre in % of the gun's side, size = picture width in % of the gun's length), with the
-// colour adjustments. Built when the picture is ready; until then the parts show their plain colours.
+const customParts = g => g === 'rifle' ? akParts : srParts;
+// the decal texture is the gun's side at its true shape; two halves (see skinParts): top = right side,
+// bottom = left side with every sticker mirrored in place so it reads the right way there too
+function decalSize(g) {
+  const W = 1024;
+  return { W, H: Math.round(W * customParts(g).aspect) };
+}
+function paintStickers(g, ctx, role) {
+  const cs = custom[g], { W, H } = decalSize(g);
+  ctx.fillStyle = cs[role];   // under and around the stickers: the part's colour
+  ctx.fillRect(0, 0, W, H * 2);
+  for (const st of cs.stickers) {
+    const img = customImage(st.img, () => customRefresh(g));
+    if (!img) continue;
+    const w = W * st.s, h = w * img.height / img.width, x = W * st.x, y = H * (1 - st.y);
+    ctx.filter = `hue-rotate(${st.hue || 0}deg) saturate(${st.sat ?? 100}%) brightness(${st.bright ?? 100}%)`;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(st.r || 0); ctx.drawImage(img, -w / 2, -h / 2, w, h); ctx.restore();
+    ctx.save(); ctx.translate(x, H + y); ctx.scale(-1, 1); ctx.rotate(st.r || 0); ctx.drawImage(img, -w / 2, -h / 2, w, h); ctx.restore();
+    ctx.filter = 'none';
+  }
+}
+// one texture per part kind that takes stickers; the other parts are just painted their colour
 function customTextures(g) {
   const cs = custom[g];
   if (cs.tex) return cs.tex;
-  const img = customImage(cs.img, () => { if (custom[g] === cs && !cs.tex) { customRepaint(g); drawCustomPreview(); } });
-  if (!img) return null;
   cs.tex = {};
+  const { W, H } = decalSize(g);
   for (const role of ['metal', 'wood', 'mag']) {
     if (!cs.parts[role]) continue;
     const c = document.createElement('canvas');
-    c.width = 1024; c.height = 384;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = cs[role];   // around the picture (and see-through bits of a PNG): the part's colour
-    ctx.fillRect(0, 0, c.width, c.height);
-    const w = c.width * cs.size / 100, h = w * img.height / img.width;
-    ctx.filter = `hue-rotate(${cs.hue}deg) saturate(${cs.sat}%) brightness(${cs.bright}%)`;
-    ctx.drawImage(img, c.width * cs.px / 100 - w / 2, c.height * (1 - cs.py / 100) - h / 2, w, h);
-    ctx.filter = 'none';
+    c.width = W; c.height = H * 2;
+    paintStickers(g, c.getContext('2d'), role);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
     cs.tex[role] = { t, mat: skinMat(t, false) };
   }
   return cs.tex;
 }
+// stickers moved or a picture finished loading: repaint the existing textures in place (cheap while dragging)
+function customRefresh(g) {
+  const cs = custom[g];
+  if (cs.tex) for (const [role, r] of Object.entries(cs.tex)) { paintStickers(g, r.t.image.getContext('2d'), role); r.t.needsUpdate = true; }
+  customRepaint(g);
+  drawCustomPreview();
+}
 function applyCustom(g) {
-  const cs = custom[g], parts = g === 'rifle' ? akParts : srParts;
-  const tex = cs.mode === 'image' && cs.img ? customTextures(g) : null;
-  for (const p of parts) {
+  const cs = custom[g];
+  const tex = cs.stickers.length ? customTextures(g) : null;
+  for (const p of customParts(g)) {
     const { role, base } = p;
     if (tex && tex[role]) {
-      p.mesh.geometry.setAttribute('uv', p.uvSkin);
+      p.mesh.geometry.setAttribute('uv', p.uvDecal);
       p.mesh.material = tex[role].mat;
       continue;
     }
@@ -4599,30 +4644,34 @@ function applySniperSkin() {
   if (custom.sniper.on && ownsCustom()) return applyCustom('sniper');
   paintParts(srParts, null, null, () => false, p => p.base);
 }
-// something changed in the editor: rebuild that gun's look if it is being used
+// colours or sticker parts changed: rebuild that gun's textures
 function customChanged(g) {
   dropCustomTex(custom[g]);
   saveCustom(g);
   customRepaint(g);
   drawCustomPreview();
 }
-function setCustomImage(g, file) {
-  if (!file || !/^image\//.test(file.type)) return shopToast('PNG나 JPG 그림 파일을 넣어 주세요');
+// a new sticker from a picture file: shrunk to 512px on the long side, kept see-through when possible
+function addSticker(g, file) {
+  if (!file || !/^image\//.test(file.type)) return shopToast('PNG나 JPG 사진 파일을 넣어 주세요');
+  if (custom[g].stickers.length >= MAX_STICKERS) return shopToast(`스티커는 ${MAX_STICKERS}장까지 붙일 수 있어요`);
   const img = new Image();
   img.onload = () => {
-    const k = Math.min(1, 1024 / Math.max(img.width, img.height));   // keep the photo's own shape
+    const k = Math.min(1, 512 / Math.max(img.width, img.height));
     const c = document.createElement('canvas');
     c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
     URL.revokeObjectURL(img.src);
+    let url = c.toDataURL('image/webp', 0.85);
+    if (!url.startsWith('data:image/webp')) url = c.toDataURL('image/png');
+    if (url.length > 250000) url = c.toDataURL('image/jpeg', 0.85);
     const cs = custom[g];
-    cs.img = c.toDataURL(/png/.test(file.type) ? 'image/png' : 'image/jpeg', 0.9);
-    for (const q of [0.85, 0.7, 0.5]) if (cs.img.length > 700000) cs.img = c.toDataURL('image/jpeg', q);   // the server takes up to ~1MB
-    cs.mode = 'image';
+    cs.stickers.push({ img: url, x: 0.45, y: 0.6, s: 0.25, r: 0, hue: 0, sat: 100, bright: 100 });
+    ce.sel = cs.stickers.length - 1;
     customChanged(g);
     renderCustomEditor();
   };
-  img.onerror = () => shopToast('그림을 못 읽었어요');
+  img.onerror = () => shopToast('사진을 못 읽었어요');
   img.src = URL.createObjectURL(file);
 }
 
@@ -4740,7 +4789,7 @@ function skinTile(id) {
   d.style.borderBottomColor = r.color;
   const sw = document.createElement('i');
   const cr = custom.rifle;
-  sw.style.background = sk.custom ? (cr.mode === 'image' && cr.img ? `center / cover url(${cr.img})` : `linear-gradient(90deg, ${cr.wood} 0 30%, ${cr.metal} 30% 70%, ${cr.mag} 70%)`)
+  sw.style.background = sk.custom ? (cr.stickers.length ? `center / contain no-repeat url("${cr.stickers[0].img}"), ${cr.metal}` : `linear-gradient(90deg, ${cr.wood} 0 30%, ${cr.metal} 30% 70%, ${cr.mag} 70%)`)
     : sk.gem ? `linear-gradient(135deg, ${sk.gem.join(',')})` : '#' + new THREE.Color(sk.paint || C.metal).getHexString();
   const n = document.createElement('span');
   n.textContent = sk.name;
@@ -4825,47 +4874,82 @@ function renderSkinInventory() {
   renderCustomEditor();
 }
 
-// 나만의 스킨 editor (inventory): which gun, colour or picture, and a flat side-view preview
-const ce = { gun: 'rifle' };
-// the real gun model, seen from its right side (stock left, muzzle right, like the picture), rendered once into
-// the preview and then the normal frame is drawn again in the same task, so the game canvas never shows it
+// 나만의 스킨 editor (inventory). The preview is the real gun model seen straight from its right side with an
+// orthographic camera (stock left, muzzle right), drawn by its own small renderer, so a point on the preview maps
+// exactly to a spot on the gun's side: stickers are dragged, resized and rotated right there.
+const ce = { gun: 'rifle', sel: -1, drag: null, renderer: null };
+const CE_PAD_X = 1.06, CE_PAD_Y = 1.25;
+// preview pixels ↔ gun side (u from the stock 0..1, v from the bottom 0..1)
+function ceView() {
+  const { z0, z1, y0, y1 } = customParts(ce.gun).box, L = z1 - z0, Hy = y1 - y0;
+  const Wf = L * CE_PAD_X, Hf = Hy * CE_PAD_Y, cv = $('ce-preview');
+  return {
+    L, Hy, Wf, Hf, cw: cv.width, ch: cv.height,
+    toPx: (u, v) => [(0.5 - (z1 - u * L - (z0 + z1) / 2) / Wf) * cv.width, (0.5 - (y0 + v * Hy - (y0 + y1) / 2) / Hf) * cv.height],
+    toUv: (px, py) => [(z1 - ((z0 + z1) / 2 - (px / cv.width - 0.5) * Wf)) / L, ((y0 + y1) / 2 + (0.5 - py / cv.height) * Hf - y0) / Hy],
+    unit: cv.width * L / Wf,   // preview pixels per gun length
+  };
+}
+// a sticker's box on the preview: centre, half sizes, rotation
+function ceBox(st) {
+  const vw = ceView(), img = customImgs[st.img];
+  const [cx, cy] = vw.toPx(st.x, st.y), w = st.s * vw.unit, h = img && img.complete && img.width ? w * img.height / img.width : w;
+  return { cx, cy, hw: w / 2, hh: h / 2, r: st.r || 0 };
+}
+const ceRot = (b, lx, ly) => [b.cx + lx * Math.cos(b.r) - ly * Math.sin(b.r), b.cy + lx * Math.sin(b.r) + ly * Math.cos(b.r)];
+const ceHandles = b => ({ size: ceRot(b, b.hw, b.hh), turn: ceRot(b, 0, -b.hh - 46) });
 function drawCustomPreview() {
   const cv = $('ce-preview');
   if (!cv || $('custom-editor').classList.contains('hidden')) return;
-  const g = ce.gun, root = g === 'rifle' ? gun : srGun, parts = g === 'rifle' ? akParts : srParts;
+  const g = ce.gun, root = g === 'rifle' ? gun : srGun, parts = customParts(g), { z0, z1, y0, y1 } = parts.box;
+  const ch = Math.round(1024 * (y1 - y0) * CE_PAD_Y / ((z1 - z0) * CE_PAD_X));
+  if (cv.width !== 1024 || cv.height !== ch) { cv.width = 1024; cv.height = ch; }
+  if (!ce.renderer) {
+    ce.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    ce.renderer.toneMapping = renderer.toneMapping;
+    ce.renderer.toneMappingExposure = renderer.toneMappingExposure;
+    ce.renderer.setClearColor(0x1b1e25, 1);
+  }
+  const R = ce.renderer;
+  if (R.domElement.width !== cv.width || R.domElement.height !== cv.height) R.setSize(cv.width, cv.height, false);
   applyCustom(g);
+  // only this gun: no arms, knife or other guns in the shot
   const changed = [];
   const show = (o, v) => { if (o.visible !== v) { changed.push([o, o.visible]); o.visible = v; } };
   const chain = new Set();
   for (let o = root; o; o = o.parent) { chain.add(o); show(o, true); }
-  for (const o of vmCamera.children) if (!chain.has(o)) show(o, false);   // knife, other guns
+  for (const o of vmCamera.children) if (!chain.has(o)) show(o, false);
   const mine = new Set(parts.map(p => p.mesh));
-  root.traverse(o => { if (o.isMesh && !mine.has(o) && !(o.parent && mine.has(o.parent))) show(o, false); });   // arms
+  root.traverse(o => { if (o.isMesh && !mine.has(o) && !(o.parent && mine.has(o.parent))) show(o, false); });
   vmScene.updateMatrixWorld(true);
-  const box = new THREE.Box3();
-  for (const p of parts) box.expandByObject(p.mesh);
-  const c = box.getCenter(new THREE.Vector3()), q = root.getWorldQuaternion(new THREE.Quaternion());
-  const len = box.getSize(new THREE.Vector3()).length();
-  const cam = new THREE.PerspectiveCamera(20, cv.width / cv.height, 0.01, 20);
-  cam.position.copy(c).addScaledVector(new THREE.Vector3(1, 0.08, 0).applyQuaternion(q).normalize(), len * 1.3);
+  const Wf = (z1 - z0) * CE_PAD_X, Hf = (y1 - y0) * CE_PAD_Y;
+  const cam = new THREE.OrthographicCamera(-Wf / 2, Wf / 2, Hf / 2, -Hf / 2, 0.001, 10);
+  const q = root.getWorldQuaternion(new THREE.Quaternion());
+  const at = root.localToWorld(new THREE.Vector3(0, (y0 + y1) / 2, (z0 + z1) / 2));
+  cam.position.copy(root.localToWorld(new THREE.Vector3(2, (y0 + y1) / 2, (z0 + z1) / 2)));
   cam.up.set(0, 1, 0).applyQuaternion(q);
-  cam.lookAt(c);
-  const clear = renderer.getClearColor(new THREE.Color()), clearA = renderer.getClearAlpha();
-  renderer.setSize(cv.width * 2, cv.height * 2, false);
-  renderer.setClearColor(0x1b1e25, 1);
-  renderer.clear();
-  renderer.render(vmScene, cam);
-  const ctx = cv.getContext('2d');
-  ctx.clearRect(0, 0, cv.width, cv.height);
-  ctx.drawImage(renderer.domElement, 0, 0, cv.width, cv.height);
+  cam.lookAt(at);
+  cam.updateMatrixWorld();
+  R.clear();
+  R.render(vmScene, cam);
   for (const [o, v] of changed) o.visible = v;
-  renderer.setClearColor(clear, clearA);
-  applyAspect();
   if (g === 'rifle') applyAkSkin(akSkin); else applySniperSkin();
-  renderer.clear();
-  renderer.render(scene, camera);
-  renderer.clearDepth();
-  renderer.render(vmScene, vmCamera);
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(R.domElement, 0, 0);
+  // the picked sticker: outline, ■ size handle, ● turn handle
+  const st = custom[g].stickers[ce.sel];
+  if (!st) return;
+  const b = ceBox(st), hd = ceHandles(b);
+  ctx.save();
+  ctx.translate(b.cx, b.cy); ctx.rotate(b.r);
+  ctx.strokeStyle = '#ffd447'; ctx.lineWidth = 3; ctx.setLineDash([10, 6]);
+  ctx.strokeRect(-b.hw, -b.hh, b.hw * 2, b.hh * 2);
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(0, -b.hh); ctx.lineTo(0, -b.hh - 46); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#ffd447'; ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
+  ctx.fillRect(hd.size[0] - 13, hd.size[1] - 13, 26, 26); ctx.strokeRect(hd.size[0] - 13, hd.size[1] - 13, 26, 26);
+  ctx.beginPath(); ctx.arc(hd.turn[0], hd.turn[1], 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 }
 function renderCustomEditor() {
   const owned = ownsCustom();
@@ -4873,43 +4957,120 @@ function renderCustomEditor() {
   $('ce-label').style.display = owned ? '' : 'none';
   if (!owned) return;
   const cs = custom[ce.gun];
+  if (ce.sel >= cs.stickers.length) ce.sel = cs.stickers.length - 1;
   for (const b of document.querySelectorAll('#ce-guns .btn')) b.classList.toggle('ghost', b.dataset.cg !== ce.gun);
-  for (const b of document.querySelectorAll('#ce-modes .btn')) b.classList.toggle('ghost', b.dataset.cm !== cs.mode);
-  $('ce-image').classList.toggle('hidden', cs.mode !== 'image');
   $('ce-mag').classList.toggle('hidden', ce.gun !== 'rifle');
   $('ce-mag-part').classList.toggle('hidden', ce.gun !== 'rifle');
   $('ce-wood-label').firstChild.textContent = ce.gun === 'rifle' ? '나무 ' : '몸통 ';
   $('ce-wood-part').textContent = ce.gun === 'rifle' ? '나무' : '몸통';
   for (const i of document.querySelectorAll('#custom-editor [data-cp]')) i.checked = !!cs.parts[i.dataset.cp];
-  for (const i of document.querySelectorAll('#custom-editor [data-cl]')) i.value = cs[i.dataset.cl];
   for (const i of document.querySelectorAll('#custom-editor [data-cc]')) i.value = cs[i.dataset.cc];
-  for (const i of document.querySelectorAll('#custom-editor [data-ca]')) i.value = cs[i.dataset.ca];
+  const st = cs.stickers[ce.sel];
+  $('ce-sel').classList.toggle('off', !st);
+  for (const i of document.querySelectorAll('#custom-editor [data-ca]')) { i.disabled = !st; i.value = st ? st[i.dataset.ca] ?? (i.dataset.ca === 'hue' ? 0 : 100) : i.defaultValue; }
+  $('ce-del').disabled = $('ce-front').disabled = !st;
+  $('ce-count').textContent = `${cs.stickers.length}/${MAX_STICKERS}`;
   const on = ce.gun === 'rifle' ? akSkin === 'custom' : cs.on;
   $('ce-equip').textContent = on ? `${CUSTOM_GUNS[ce.gun]}에 장착됨 · 해제` : `${CUSTOM_GUNS[ce.gun]}에 장착`;
-  if (cs.mode === 'image' && cs.img) customTextures(ce.gun);   // preview draws from it
   drawCustomPreview();
 }
-for (const b of document.querySelectorAll('#ce-guns .btn')) b.onclick = () => { ce.gun = b.dataset.cg; renderCustomEditor(); };
-for (const b of document.querySelectorAll('#ce-modes .btn')) b.onclick = () => {
-  custom[ce.gun].mode = b.dataset.cm;
-  customChanged(ce.gun);
-  renderCustomEditor();
-  if (b.dataset.cm === 'image' && !custom[ce.gun].img) $('ce-file').click();
-};
+for (const b of document.querySelectorAll('#ce-guns .btn')) b.onclick = () => { ce.gun = b.dataset.cg; ce.sel = -1; renderCustomEditor(); };
 for (const i of document.querySelectorAll('#custom-editor [data-cc]')) i.oninput = () => { custom[ce.gun][i.dataset.cc] = i.value; customChanged(ce.gun); renderSkinTiles(); };
-for (const i of document.querySelectorAll('#custom-editor [data-ca]')) i.onchange = () => { custom[ce.gun][i.dataset.ca] = +i.value; customChanged(ce.gun); renderSkinTiles(); };
 for (const i of document.querySelectorAll('#custom-editor [data-cp]')) i.onchange = () => { custom[ce.gun].parts[i.dataset.cp] = i.checked; customChanged(ce.gun); };
-for (const i of document.querySelectorAll('#custom-editor [data-cl]')) i.oninput = () => { custom[ce.gun][i.dataset.cl] = +i.value; customChanged(ce.gun); };
-$('ce-pick').onclick = () => $('ce-file').click();
-$('ce-file').onchange = e => { setCustomImage(ce.gun, e.target.files[0]); e.target.value = ''; };
+for (const i of document.querySelectorAll('#custom-editor [data-ca]')) i.oninput = () => {
+  const st = custom[ce.gun].stickers[ce.sel];
+  if (!st) return;
+  st[i.dataset.ca] = +i.value;
+  customRefresh(ce.gun);
+  saveCustom(ce.gun);
+};
+$('ce-add').onclick = () => $('ce-file').click();
+$('ce-file').onchange = e => { addSticker(ce.gun, e.target.files[0]); e.target.value = ''; };
+$('ce-del').onclick = () => {
+  const cs = custom[ce.gun];
+  if (!cs.stickers[ce.sel]) return;
+  cs.stickers.splice(ce.sel, 1);
+  ce.sel = -1;
+  customChanged(ce.gun); renderCustomEditor(); renderSkinTiles();
+};
+$('ce-front').onclick = () => {
+  const cs = custom[ce.gun];
+  if (!cs.stickers[ce.sel]) return;
+  cs.stickers.push(cs.stickers.splice(ce.sel, 1)[0]);
+  ce.sel = cs.stickers.length - 1;
+  customRefresh(ce.gun); saveCustom(ce.gun);
+};
+// direct manipulation on the preview: drag a sticker to move it, ■ to resize, ● to turn; wheel = size, Shift+wheel = turn
+function cePoint(e) {
+  const cv = $('ce-preview'), rc = cv.getBoundingClientRect();
+  return [(e.clientX - rc.left) * cv.width / rc.width, (e.clientY - rc.top) * cv.height / rc.height];
+}
+function ceHit(px, py) {
+  const cs = custom[ce.gun];
+  const cur = cs.stickers[ce.sel];
+  if (cur) {
+    const hd = ceHandles(ceBox(cur));
+    if (Math.hypot(px - hd.size[0], py - hd.size[1]) < 24) return { i: ce.sel, op: 'size' };
+    if (Math.hypot(px - hd.turn[0], py - hd.turn[1]) < 24) return { i: ce.sel, op: 'turn' };
+  }
+  for (let i = cs.stickers.length - 1; i >= 0; i--) {
+    const b = ceBox(cs.stickers[i]), dx = px - b.cx, dy = py - b.cy;
+    const lx = dx * Math.cos(b.r) + dy * Math.sin(b.r), ly = -dx * Math.sin(b.r) + dy * Math.cos(b.r);
+    if (Math.abs(lx) <= b.hw && Math.abs(ly) <= b.hh) return { i, op: 'move' };
+  }
+  return null;
+}
+$('ce-preview').addEventListener('pointerdown', e => {
+  const [px, py] = cePoint(e), hit = ceHit(px, py);
+  ce.sel = hit ? hit.i : -1;
+  if (hit) {
+    const st = custom[ce.gun].stickers[hit.i], b = ceBox(st);
+    ce.drag = { ...hit, px, py, x: st.x, y: st.y, s: st.s, dist: Math.hypot(px - b.cx, py - b.cy) || 1 };
+    $('ce-preview').setPointerCapture(e.pointerId);
+  }
+  renderCustomEditor();
+});
+$('ce-preview').addEventListener('pointermove', e => {
+  const cv = $('ce-preview'), [px, py] = cePoint(e);
+  if (!ce.drag) {
+    const hit = ceHit(px, py);
+    cv.style.cursor = !hit ? 'default' : hit.op === 'size' ? 'nwse-resize' : hit.op === 'turn' ? 'grab' : 'move';
+    return;
+  }
+  const d = ce.drag, st = custom[ce.gun].stickers[d.i], vw = ceView();
+  if (!st) return;
+  if (d.op === 'move') {
+    const [u0, v0] = vw.toUv(d.px, d.py), [u1, v1] = vw.toUv(px, py);
+    st.x = Math.min(1.1, Math.max(-0.1, d.x + u1 - u0));
+    st.y = Math.min(1.2, Math.max(-0.2, d.y + v1 - v0));
+  } else {
+    const b = ceBox(st);
+    if (d.op === 'size') st.s = Math.min(1.5, Math.max(0.02, d.s * Math.hypot(px - b.cx, py - b.cy) / d.dist));
+    else st.r = Math.atan2(py - b.cy, px - b.cx) + Math.PI / 2;
+  }
+  customRefresh(ce.gun);
+});
+const ceDrop = () => { if (ce.drag) { ce.drag = null; saveCustom(ce.gun); renderSkinTiles(); } };
+$('ce-preview').addEventListener('pointerup', ceDrop);
+$('ce-preview').addEventListener('pointercancel', ceDrop);
+$('ce-preview').addEventListener('wheel', e => {
+  const st = custom[ce.gun].stickers[ce.sel];
+  if (!st) return;
+  e.preventDefault();
+  if (e.shiftKey) st.r = (st.r || 0) + Math.sign(e.deltaY || e.deltaX) * Math.PI / 36;
+  else st.s = Math.min(1.5, Math.max(0.02, st.s * (e.deltaY > 0 ? 0.93 : 1.07)));
+  customRefresh(ce.gun);
+  saveCustom(ce.gun);
+}, { passive: false });
 $('ce-equip').onclick = async () => {
   if (ce.gun === 'rifle') await equipSkin(akSkin === 'custom' ? 'default' : 'custom');
   else { custom.sniper.on = !custom.sniper.on; saveCustom('sniper'); applySniperSkin(); }
   renderCustomEditor();
 };
 $('ce-reset').onclick = () => {
-  const on = custom[ce.gun].on;
-  resetCustom(ce.gun, { on });
+  if (!confirm('색상과 스티커를 전부 처음으로 되돌릴까요?')) return;
+  resetCustom(ce.gun, { on: custom[ce.gun].on });
+  ce.sel = -1;
   customChanged(ce.gun);
   renderCustomEditor();
   renderSkinTiles();
