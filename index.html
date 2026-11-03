@@ -126,6 +126,39 @@ canvas { display: block; width: 100vw; height: 100vh; }
 }
 #menu-error { color: #ff8a80; min-height: 18px; font-size: 14px; }
 #account { z-index: 140; }
+#credit-bar { align-self: flex-end; display: flex; align-items: center; gap: 6px; color: #fff; font-weight: 800; margin-bottom: 8px; }
+#credit-bar .coin { width: 20px; height: 20px; border-radius: 50%; background: #ffd447; color: #5a3b00; font-size: 12px; display: grid; place-items: center; }
+#credit-bar b { font-size: 18px; }
+#credit-bar .btn { padding: 3px 10px; font-size: 12px; box-shadow: none; }
+#credit-bar.guest { opacity: 0.5; }
+.case-card { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; background: linear-gradient(135deg, rgba(59,130,246,0.25), rgba(255,70,85,0.18));
+  border: 2px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 14px; width: 100%; color: #fff; }
+.case-art { width: 110px; height: 80px; border-radius: 6px; background: linear-gradient(160deg, #2a3140, #151922); border: 3px solid #ffd447;
+  box-shadow: inset 0 -14px 0 rgba(255,212,71,0.25); position: relative; }
+.case-art::after { content: 'NO EFFECT'; position: absolute; inset: 0; display: grid; place-items: center; font-weight: 900; font-size: 13px; color: #ffd447; letter-spacing: 1px; }
+.case-info { display: flex; flex-direction: column; gap: 6px; }
+.case-info b { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 24px; font-weight: 400; }
+.case-info span { font-size: 13px; opacity: 0.8; }
+#case-odds { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; font-size: 12px; align-items: center; margin-left: auto; }
+#case-odds div { display: contents; }
+#case-odds i { width: 10px; height: 10px; border-radius: 2px; }
+#shop-msg { color: #ffd447; font-weight: 700; min-height: 18px; font-size: 14px; }
+#quest-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+#quest-list .quest { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 6px 10px; color: #fff; font-size: 14px; font-weight: 600; }
+#quest-list .btn { padding: 4px 12px; font-size: 13px; box-shadow: none; }
+#case-open { z-index: 150; }
+#case-window { position: relative; width: min(820px, 92vw); height: 150px; overflow: hidden; border: 3px solid rgba(255,255,255,0.2); border-radius: 8px; background: #11141a; }
+#case-strip { display: flex; height: 100%; will-change: transform; }
+.tile { flex: 0 0 128px; margin: 10px 4px; border-radius: 6px; background: #1d222c; border-bottom: 6px solid #999; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; color: #fff; font-weight: 700; font-size: 13px; }
+.tile i { width: 90px; height: 50px; border-radius: 4px; }
+.case-line { position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; background: #ffd447; transform: translateX(-50%); box-shadow: 0 0 10px #ffd447; }
+#case-result { text-align: center; color: #fff; }
+#case-result.hidden { display: none; }
+#case-result-rarity { font-size: 15px; opacity: 0.8; font-weight: 700; }
+#case-result-name { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 44px; margin: 4px 0 10px; }
+.skin-item .tile { margin: 0; flex: none; width: 100%; height: 80px; }
 #queue .q-mode { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 34px; color: #ff4655; }
 #queue .q-ring { width: 120px; height: 120px; border-radius: 50%; border: 6px solid rgba(255,255,255,0.12); border-top-color: #ff4655;
   animation: qspin 1s linear infinite; }
@@ -357,6 +390,8 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   </div>
 
   <div class="main-center">
+    <div id="credit-bar"><span class="coin">C</span><b id="credit-amt">-</b><span>찬크레딧</span>
+      <button class="btn ghost" id="btn-charge">충전</button></div>
     <section class="menu-page" id="page-play">
       <div class="page-title">플레이</div>
       <div id="ranked-box">
@@ -400,6 +435,8 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
         <div class="shop-item inv-item" data-kind="gun" data-id="shotgun"><div class="shop-art dbl"></div><b>더블배럴</b><button class="btn equip">장착</button></div>
         <div class="shop-item inv-item" data-kind="gun" data-id="sniper"><div class="shop-art awp"></div><b>저격총</b><button class="btn equip">장착</button></div>
       </div>
+      <div class="inv-label">A-K 스킨 <small>상점의 노이펙트 상자에서 뽑아요</small></div>
+      <div class="shop-grid" id="inv-skins"></div>
       <div class="inv-label">칼</div>
       <div class="shop-grid">
         <div class="shop-item inv-item" data-kind="knife" data-id="basic"><div class="shop-art basic"></div><b>기본칼</b><button class="btn equip">장착</button></div>
@@ -415,6 +452,19 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 
     <section class="menu-page hidden" id="page-shop">
       <div class="page-title">상점</div>
+      <div class="case-card">
+        <div class="case-art"></div>
+        <div class="case-info">
+          <b>노이펙트 상자</b>
+          <span>A-K 스킨 6종 중 하나 · 블루젬은 0.3%</span>
+          <button class="btn accent" id="btn-open-case">열기 · 30 찬크레딧</button>
+        </div>
+        <div id="case-odds"></div>
+      </div>
+      <div id="shop-msg"></div>
+      <div class="inv-label">오늘의 퀘스트 <small>하나에 20 찬크레딧 · 매일 자정(한국 시간) 초기화</small></div>
+      <div id="quest-list"></div>
+      <div class="inv-label">칼</div>
       <div class="shop-grid">
         <div class="shop-item" data-skin="basic">
           <div class="shop-art basic"></div>
@@ -441,6 +491,16 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <b>카람빗</b>
       <i>상점 가기 ›</i>
     </button>
+  </div>
+</div>
+
+<div id="case-open" class="overlay hidden">
+  <div class="q-mode">노이펙트 상자</div>
+  <div id="case-window"><div id="case-strip"></div><i class="case-line"></i></div>
+  <div id="case-result" class="hidden">
+    <div id="case-result-rarity"></div>
+    <div id="case-result-name"></div>
+    <div class="row"><button class="btn accent" id="case-equip">바로 장착</button><button class="btn ghost" id="case-close">닫기</button></div>
   </div>
 </div>
 
@@ -3736,8 +3796,8 @@ $('btn-practice').onclick = () => { SFX.unlock(); startPractice(); };
 function showMenuPage(page) {
   for (const sec of document.querySelectorAll('#menu .menu-page')) sec.classList.toggle('hidden', sec.id !== 'page-' + page);
   for (const b of document.querySelectorAll('#menu .nav-item[data-page]')) b.classList.toggle('on', b.dataset.page === page);
-  if (page === 'shop') renderShop();
-  if (page === 'inv') renderInventory();
+  if (page === 'shop') { renderShop(); renderQuests(); }
+  if (page === 'inv') { renderInventory(); renderSkinInventory(); }
 }
 for (const b of document.querySelectorAll('#menu [data-page]')) b.onclick = () => showMenuPage(b.dataset.page);
 for (const b of document.querySelectorAll('#menu [data-goto]')) b.onclick = () => showMenuPage(b.dataset.goto);
@@ -3927,6 +3987,7 @@ async function loadProfile() {
   account.profile = data || null;
   if (data) { $('name-input').value = data.nickname; $('name-input').readOnly = true; }
   await loadLeaderboard();
+  refreshShop();
 }
 async function loadLeaderboard() {
   if (!sb) return;
@@ -4004,6 +4065,8 @@ $('rk-logout').onclick = async () => {
   account.user = account.profile = null;
   $('name-input').readOnly = false;
   renderRanked();
+  applyAkSkin('default');
+  refreshShop();
   acctEl.classList.remove('hidden');
 };
 // on load: keep the saved session, otherwise ask to log in / sign up / play as guest
@@ -4158,6 +4221,255 @@ async function reportRanked(win) {
   addChat({ id: 0, name: '경쟁전', team: '', text: msg });
   account.lastResult = msg;
   loadLeaderboard();
+  refreshShop();   // quest counters moved
+}
+
+
+// ── 상점: 찬크레딧 · 노이펙트 상자 · A-K 스킨 · 퀘스트 ── credits, rolls and rewards all run on the server
+// (supabase_shop.sql); this side only shows them and paints the A-K.
+const RARITY = {
+  base: { label: '기본', color: '#6b7280' },
+  common: { label: '일반', color: '#9aa3ad' },
+  rare: { label: '고급', color: '#4ade80' },
+  epic: { label: '희귀', color: '#ff4655' },
+  legend: { label: '전설', color: '#3b82f6' },
+};
+const AK_SKINS = {
+  default: { name: '기본', rarity: 'base' },
+  orange: { name: '주황 페인트', rarity: 'common', paint: 0xe8833a, odds: 28.33 },
+  navy: { name: '남색 페인트', rarity: 'common', paint: 0x2b3f73, odds: 28.33 },
+  pink: { name: '핑크 페인트', rarity: 'common', paint: 0xf08cb4, odds: 28.34 },
+  greengreen: { name: '그린그린', rarity: 'rare', paint: 0x3dbb5a, wood: 0x2f7d3f, mag: 0x6fe08a, odds: 12 },
+  redgem: { name: '레드젬', rarity: 'epic', gem: ['#ff2a2a', '#ff7a2a', '#ffd23a', '#a3121b', '#ff5c8a'], odds: 2.7 },
+  bluegem: { name: '블루젬', rarity: 'legend', gem: ['#1f5fff', '#2bb6ff', '#6a3cff', '#ffd447', '#0f2f9a'], odds: 0.3 },
+};
+const CASE_PRICE = 30;
+
+// case-hardened look: steel with blotches of the gem colours (each skin gets one fixed pattern)
+function gemTexture(cols, seed) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  let s = seed;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  g.fillStyle = '#4c525e';
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 120; i++) {
+    const x = rnd() * 256, y = rnd() * 256, r = 10 + rnd() * 55;
+    const grd = g.createRadialGradient(x, y, 0, x, y, r);
+    grd.addColorStop(0, cols[Math.floor(rnd() * cols.length)]);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.globalAlpha = 0.75 + rnd() * 0.25;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  g.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+// the A-K's own parts get their own materials so a skin doesn't repaint the other guns
+const akParts = [];
+gun.traverse(o => {
+  if (!o.isMesh || !o.material || !o.material.color) return;
+  const hex = o.material.color.getHex();
+  const role = hex === C.metal || hex === C.metalLight ? 'metal' : hex === C.wood || hex === C.woodDark ? 'wood' : hex === C.mag ? 'mag' : null;
+  if (!role) return;   // hands and sleeves keep their look
+  o.material = o.material.clone();
+  akParts.push({ mesh: o, role, base: hex });
+});
+const gemCache = {};
+let akSkin = 'default';
+function applyAkSkin(id) {
+  const sk = AK_SKINS[id] || AK_SKINS.default;
+  akSkin = AK_SKINS[id] ? id : 'default';
+  if (sk.gem && !gemCache[akSkin]) gemCache[akSkin] = gemTexture(sk.gem, akSkin === 'bluegem' ? 661 : 387);
+  for (const { mesh, role, base } of akParts) {
+    const m = mesh.material;
+    m.map = paperTex;
+    let col = base;
+    if (sk.gem && role !== 'wood') { m.map = gemCache[akSkin]; col = 0xffffff; }
+    else if (sk.paint && role === 'metal') col = base === C.metalLight ? new THREE.Color(sk.paint).offsetHSL(0, 0, 0.08).getHex() : sk.paint;
+    else if (role === 'mag' && (sk.mag || sk.paint)) col = sk.mag || sk.paint;
+    else if (role === 'wood' && sk.wood) col = sk.wood;
+    m.color.setHex(col);
+    m.needsUpdate = true;
+  }
+}
+
+const shop = { owned: {}, playTimer: null };
+const fmtCredits = n => `${n} 찬크레딧`;
+function shopToast(msg) { $('shop-msg').textContent = msg; clearTimeout(shop.toastT); shop.toastT = setTimeout(() => { $('shop-msg').textContent = ''; }, 4000); }
+function renderCredits() {
+  const p = account.profile;
+  $('credit-amt').textContent = p ? (p.credits ?? 0) : '-';
+  $('credit-bar').classList.toggle('guest', !p);
+}
+// today's status (and starts the server's 10-minute clock), owned skins, then repaint everything
+async function refreshShop() {
+  if (!sb || !account.profile) { renderCredits(); renderQuests(); renderSkinInventory(); return; }
+  const { data } = await sb.rpc('shop_status');
+  if (data) account.profile = { ...account.profile, ...data };
+  const { data: rows } = await sb.from('skins_owned').select('skin');
+  shop.owned = {};
+  for (const r of rows || []) shop.owned[r.skin] = (shop.owned[r.skin] || 0) + 1;
+  applyAkSkin(account.profile.equipped_skin || 'default');
+  renderCredits(); renderQuests(); renderSkinInventory();
+  schedulePlaytime();
+}
+// 하루 10분 접속: ask the server once the 10 minutes are up (it checks the time itself)
+function schedulePlaytime() {
+  clearTimeout(shop.playTimer);
+  const p = account.profile;
+  if (!p || (p.claimed || []).includes('playtime') || !p.play_started_at) return;
+  const left = 10 * 60 * 1000 - (Date.now() + (typeof clockSkew === 'number' ? clockSkew : 0) - Date.parse(p.play_started_at));
+  shop.playTimer = setTimeout(() => claimReward('playtime', true), Math.max(5000, left + 5000));
+}
+async function claimReward(kind, auto = false) {
+  if (!sb || !account.profile) return;
+  const { data, error } = await sb.rpc('claim_reward', { kind });
+  if (error) {
+    if (auto && /10분/.test(error.message)) shop.playTimer = setTimeout(() => claimReward('playtime', true), 60000);
+    else if (!auto) shopToast(error.message);
+    return;
+  }
+  account.profile = { ...account.profile, ...data };
+  shopToast('+20 찬크레딧 받았어요!');
+  if (auto) addChat({ id: 0, name: '보상', team: '', text: '오늘 10분 접속 보상 +20 찬크레딧' });
+  renderCredits(); renderQuests();
+}
+const QUESTS = [
+  { id: 'playtime', name: '오늘 10분 접속하기', prog: p => Math.min(10, Math.floor((Date.now() - Date.parse(p.play_started_at || Date.now())) / 60000)), goal: 10, unit: '분' },
+  { id: 'ranked3', name: '경쟁전 3판 하기', prog: p => p.ranked_today || 0, goal: 3, unit: '판' },
+  { id: 'win1', name: '경쟁전 1승 하기', prog: p => p.ranked_wins_today || 0, goal: 1, unit: '승' },
+];
+function renderQuests() {
+  const box = $('quest-list');
+  box.innerHTML = '';
+  const p = account.profile;
+  for (const q of QUESTS) {
+    const row = document.createElement('div');
+    row.className = 'quest';
+    const got = p && (p.claimed || []).includes(q.id);
+    const n = p ? Math.min(q.goal, q.prog(p)) : 0;
+    const name = document.createElement('span');
+    name.textContent = `${q.name} · ${n}/${q.goal}${q.unit}`;
+    const btn = document.createElement('button');
+    btn.className = 'btn' + (got ? ' ghost' : ' accent');
+    btn.textContent = got ? '받음' : '+20 받기';
+    btn.disabled = !p || got || n < q.goal;
+    btn.onclick = () => claimReward(q.id);
+    row.append(name, btn);
+    box.appendChild(row);
+  }
+}
+setInterval(() => { if (account.profile && !$('page-shop').classList.contains('hidden')) renderQuests(); }, 30000);
+
+// odds table under the case
+(() => {
+  const box = $('case-odds');
+  for (const id of ['bluegem', 'redgem', 'greengreen', 'orange', 'navy', 'pink']) {
+    const sk = AK_SKINS[id], r = RARITY[sk.rarity];
+    const row = document.createElement('div');
+    row.innerHTML = '<i></i><span></span><b></b>';
+    row.querySelector('i').style.background = r.color;
+    row.querySelector('span').textContent = `${sk.name} (${r.label})`;
+    row.querySelector('b').textContent = sk.odds + '%';
+    box.appendChild(row);
+  }
+})();
+
+// opening: a CS-style strip of items that spins and stops on what the server rolled
+function rollLocal() {
+  let r = Math.random() * 100;
+  for (const id of ['bluegem', 'redgem', 'greengreen', 'orange', 'navy', 'pink']) { r -= AK_SKINS[id].odds; if (r < 0) return id; }
+  return 'pink';
+}
+function skinTile(id) {
+  const sk = AK_SKINS[id], r = RARITY[sk.rarity];
+  const d = document.createElement('div');
+  d.className = 'tile';
+  d.style.borderBottomColor = r.color;
+  const sw = document.createElement('i');
+  sw.style.background = sk.gem ? `linear-gradient(135deg, ${sk.gem.join(',')})` : '#' + new THREE.Color(sk.paint || C.metal).getHexString();
+  const n = document.createElement('span');
+  n.textContent = sk.name;
+  d.append(sw, n);
+  return d;
+}
+async function openCase() {
+  if (!sb || !account.profile) return shopToast('로그인해야 상자를 열 수 있어요');
+  if ((account.profile.credits || 0) < CASE_PRICE) return shopToast('찬크레딧이 부족해요 · 충전은 관리자에게 문의하세요');
+  $('btn-open-case').disabled = true;
+  const { data, error } = await sb.rpc('open_case');
+  if (error || !data) { $('btn-open-case').disabled = false; return shopToast(error ? error.message : '열기 실패'); }
+  account.profile.credits = data.credits;
+  shop.owned[data.skin] = (shop.owned[data.skin] || 0) + 1;
+  renderCredits();
+  const strip = $('case-strip'), WIN = 44;
+  strip.innerHTML = '';
+  for (let i = 0; i < 52; i++) strip.appendChild(skinTile(i === WIN ? data.skin : rollLocal()));
+  $('case-open').classList.remove('hidden');
+  $('case-result').classList.add('hidden');
+  strip.style.transition = 'none';
+  strip.style.transform = 'translateX(0)';
+  void strip.offsetWidth;
+  const tileW = 136, view = $('case-window').clientWidth;
+  const stop = WIN * tileW + tileW / 2 - view / 2 + (Math.random() - 0.5) * (tileW * 0.6);
+  strip.style.transition = 'transform 5.2s cubic-bezier(0.08, 0.7, 0.12, 1)';
+  strip.style.transform = `translateX(${-stop}px)`;
+  const ticks = setInterval(() => SFX.tone(1800, 0.02, 0.05), 90);
+  setTimeout(() => {
+    clearInterval(ticks);
+    const sk = AK_SKINS[data.skin], r = RARITY[sk.rarity];
+    $('case-result-name').textContent = sk.name;
+    $('case-result-name').style.color = r.color;
+    $('case-result-rarity').textContent = r.label + ' 등급';
+    $('case-result').classList.remove('hidden');
+    sk.rarity === 'legend' || sk.rarity === 'epic' ? sfx.kill() : SFX.tone(1200, 0.12, 0.12, 0, 'triangle');
+    $('btn-open-case').disabled = false;
+    $('case-equip').onclick = () => equipSkin(data.skin).then(() => $('case-open').classList.add('hidden'));
+    renderSkinInventory();
+  }, 5400);
+}
+$('btn-open-case').onclick = openCase;
+$('case-close').onclick = () => $('case-open').classList.add('hidden');
+$('btn-charge').onclick = () => shopToast('충전은 관리자에게 문의하세요');
+
+async function equipSkin(id) {
+  if (!sb || !account.profile) return;
+  const { data, error } = await sb.rpc('equip_skin', { skin: id });
+  if (error) return shopToast(error.message);
+  account.profile = { ...account.profile, ...data };
+  applyAkSkin(id);
+  renderSkinInventory();
+}
+function renderSkinInventory() {
+  const box = $('inv-skins');
+  box.innerHTML = '';
+  const ids = ['default', ...Object.keys(AK_SKINS).filter(id => id !== 'default' && shop.owned[id])];
+  for (const id of ids) {
+    const sk = AK_SKINS[id], r = RARITY[sk.rarity];
+    const item = document.createElement('div');
+    item.className = 'shop-item inv-item skin-item' + (akSkin === id ? ' equipped' : '');
+    const t = skinTile(id);
+    const b = document.createElement('b');
+    b.textContent = sk.name + (shop.owned[id] > 1 ? ` ×${shop.owned[id]}` : '');
+    b.style.color = r.color;
+    const btn = document.createElement('button');
+    btn.className = 'btn equip';
+    btn.textContent = akSkin === id ? '장착됨' : '장착';
+    btn.disabled = !account.profile && id !== 'default';
+    btn.onclick = () => equipSkin(id);
+    item.append(t, b, btn);
+    box.appendChild(item);
+  }
+  if (!account.profile) {
+    const note = document.createElement('div');
+    note.className = 'sub';
+    note.textContent = '로그인하면 상점에서 뽑은 스킨이 여기 모여요';
+    box.appendChild(note);
+  }
 }
 
 function renderLobby() {
