@@ -139,3 +139,39 @@ language sql security definer set search_path = public as $$
   update public.profiles set credits = credits + amount where nickname = nick returning credits;
 $$;
 revoke execute on function public.admin_give_credits(text, int) from public, anon, authenticated;
+
+-- ── 카람빗 (확정 상품, 50 찬크레딧) + 슈퍼 계정 ──
+-- super = owns every skin/knife, now and later
+alter table public.profiles add column if not exists super boolean not null default false;
+
+create or replace function public.buy_item(item text) returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  p public.profiles;
+  price int := case item when 'karambit' then 50 else null end;
+begin
+  p := public._my_profile();
+  if price is null then raise exception '없는 상품이에요'; end if;
+  if p.super or exists (select 1 from public.skins_owned where user_id = p.id and skin = 'knife_' || item) then
+    raise exception '이미 갖고 있어요';
+  end if;
+  if p.credits < price then raise exception '찬크레딧이 부족해요'; end if;
+  update public.profiles set credits = credits - price where id = p.id;
+  insert into public.skins_owned (user_id, skin) values (p.id, 'knife_' || item);
+  return json_build_object('item', item, 'credits', p.credits - price);
+end $$;
+grant execute on function public.buy_item(text) to authenticated;
+
+create or replace function public.equip_skin(skin text) returns public.profiles
+language plpgsql security definer set search_path = public as $$
+declare p public.profiles;
+begin
+  p := public._my_profile();
+  if skin <> 'default' and not p.super and not exists (select 1 from public.skins_owned where user_id = p.id and skins_owned.skin = equip_skin.skin) then
+    raise exception '갖고 있지 않은 스킨이에요';
+  end if;
+  update public.profiles set equipped_skin = skin where id = p.id returning * into p;
+  return p;
+end $$;
+
+-- make an account super (SQL Editor): update public.profiles set super = true, credits = greatest(credits, 999999) where nickname = '닉네임';
