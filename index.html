@@ -3507,7 +3507,7 @@ function createHostRoom(code, mode, type = 'elim') {
 
 // ── transports ──
 function netError(msg) {
-  if (net.ranked && queue.on) return requeue();
+  if (net.ranked && queue.on) { $('q-sub').textContent = msg + ' · 다시 시도 중'; return requeue(); }
   if (net.mode === 'lobby') $('lobby-msg').textContent = msg; else $('menu-error').textContent = msg;
 }
 // 공방 (public rooms) sit on fixed codes PB01..PB12, so the menu can list them by asking each code who's there
@@ -4072,19 +4072,47 @@ async function rankedMatch(again = false) {
   if (again !== true) startQueueScreen();
   if (!clockSynced) await syncClock();
   const size = account.size, mode = size + 'v' + size, d = account.profile.division;
-  const { data, error } = await rankedQuery(size, d).order('players', { ascending: false }).limit(20);
+  let { data, error } = await rankedQuery(size, d).order('players', { ascending: false }).limit(20);
   if (!queue.on) return;
-  if (error) { $('q-status').textContent = '매칭 서버 오류 · 다시 시도 중'; return requeue(); }
+  if (error) {
+    // an expired login is the usual cause: refresh it once and look again
+    console.warn('ranked lookup failed', error);
+    const refreshed = await sb.auth.refreshSession().catch(e => ({ error: e }));
+    if (refreshed.error && /jwt|token|auth/i.test((error.message || '') + (refreshed.error.message || ''))) {
+      // the login is gone: back to the main screen and ask to log in again
+      leaveOnline();
+      account.user = account.profile = null;
+      renderRanked();
+      acctMsg('로그인이 만료됐어요 · 다시 로그인해 주세요');
+      acctEl.classList.remove('hidden');
+      return;
+    }
+    ({ data, error } = await rankedQuery(size, d).order('players', { ascending: false }).limit(20));
+    if (!queue.on) return;
+  }
+  if (error) {
+    // still failing: show why, and wait in our own room anyway so others can still find us
+    $('q-sub').textContent = '매칭 서버 오류: ' + (error.message || error.code || '알 수 없음') + ' · 내 방을 열고 기다리는 중';
+    data = [];
+  }
   const room = (data || []).find(r => r.players < r.max_players && r.host_id !== account.user.id);
   net.ranked = true;
   if (room) { joinRoom(room.code); return; }
   hostRoom(mode, 'bomb', 0, false);
   for (let i = 0; i < 40 && !(net.hostRoom && net.room); i++) await new Promise(r => setTimeout(r, 250));
-  if (!queue.on || !net.hostRoom || !net.room) return;
+  if (!queue.on) return;
+  if (!net.hostRoom || !net.room) {
+    $('q-sub').textContent = 'P2P 연결 서버(PeerJS)에 접속이 안 돼요 · 다시 시도 중 (학교·PC방 네트워크가 막았을 수 있어요)';
+    return requeue();
+  }
   account.listing = net.room;
   const { error: listError } = await sb.from('ranked_rooms').upsert({ code: net.room, host_id: account.user.id, host_division: d, size, max_players: size * 2,
     players: 1, status: 'open', updated_at: boardTime() });
-  if (listError) { console.warn('ranked listing failed', listError); $('q-status').textContent = '매칭 서버 오류 · 다시 시도 중'; return requeue(); }
+  if (listError) {
+    console.warn('ranked listing failed', listError);
+    $('q-sub').textContent = '방 등록 실패: ' + (listError.message || listError.code) + ' · 다시 시도 중';
+    return requeue();
+  }
   account.beat = setInterval(() => {
     if (!account.listing || account.listing !== net.room) return;
     sb.from('ranked_rooms').update({ players: (net.players || []).length, status: net.mode === 'lobby' ? 'open' : 'playing',
