@@ -310,6 +310,11 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   <label>Sensitivity <input type="range" id="sens-slider" min="0.01" max="10" step="0.01" value="0.4"> <input type="number" id="sens-input" min="0.01" max="10" step="0.01" value="0.4" style="width:52px;background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:1px 4px;font-size:12px;text-align:right"></label>
   <label>Camera Dist <input type="range" id="dist-slider" min="1" max="8" step="0.1" value="3.5"> <span class="val" id="dist-val">3.5</span></label>
   <label>FOV <input type="range" id="fov-slider" min="50" max="110" step="1" value="65"> <span class="val" id="fov-val">65</span></label>
+  <label>화면 비율 <select id="aspect-select" style="background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:12px">
+    <option value="native">기본 (화면 그대로)</option>
+    <option value="stretch">4:3 스트레치</option>
+    <option value="black">4:3 블랙바</option>
+  </select></label>
   <label>Invert Y <input type="checkbox" id="invert-y"></label>
   <label>Volume <input type="range" id="vol-slider" min="0" max="1" step="0.05" value="0.7"> <span class="val" id="vol-val">70</span></label>
   <label>보이스 <input type="range" id="voice-slider" min="0" max="1" step="0.05" value="1"> <span class="val" id="voice-val">100</span></label>
@@ -4763,14 +4768,33 @@ function animate() {
   renderer.render(vmScene, vmCamera);
 }
 
-// ── RESIZE ──
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+// ── RESIZE / ASPECT ──
+// 화면 비율 (like CS2): native fills the screen; 4:3 stretch renders a 4:3 view stretched across the whole screen
+// (wider models, same vertical FOV); 4:3 black bars renders a 4:3 view centered with black on the sides.
+let aspectMode = 'native';
+try { if (['native', 'stretch', 'black'].includes(localStorage.getItem('aspectMode'))) aspectMode = localStorage.getItem('aspectMode'); } catch (e) { /* storage blocked */ }
+function applyAspect() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const cw = aspectMode === 'black' ? Math.min(w, Math.round(h * 4 / 3)) : w;
+  camera.aspect = aspectMode === 'native' ? w / h : 4 / 3;
   camera.updateProjectionMatrix();
   vmCamera.aspect = camera.aspect;
   vmCamera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(cw, h, false);
+  const c = renderer.domElement.style;
+  c.width = cw + 'px';
+  c.margin = aspectMode === 'black' ? '0 auto' : '';
+  document.body.style.background = aspectMode === 'black' ? '#000' : '';
+}
+window.addEventListener('resize', applyAspect);
+const aspectSelect = document.getElementById('aspect-select');
+aspectSelect.value = aspectMode;
+aspectSelect.addEventListener('change', e => {
+  aspectMode = e.target.value;
+  try { localStorage.setItem('aspectMode', aspectMode); } catch (err) { /* storage blocked */ }
+  applyAspect();
 });
+applyAspect();
 
 animate();
 </script>
