@@ -405,6 +405,12 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
         <div class="shop-item inv-item" data-kind="knife" data-id="basic"><div class="shop-art basic"></div><b>기본칼</b><button class="btn equip">장착</button></div>
         <div class="shop-item inv-item" data-kind="knife" data-id="karambit"><div class="shop-art karambit"></div><b>카람빗</b><button class="btn equip">장착</button></div>
       </div>
+      <div class="inv-label">화면 비율 <small>게임 중엔 ESC 설정에서도 바꿀 수 있어요</small></div>
+      <div id="aspect-pick" style="display:flex;gap:8px">
+        <button class="btn ghost" data-aspect="native">기본</button>
+        <button class="btn ghost" data-aspect="stretch">4:3 스트레치</button>
+        <button class="btn ghost" data-aspect="black">4:3 블랙바</button>
+      </div>
     </section>
 
     <section class="menu-page hidden" id="page-shop">
@@ -3507,7 +3513,10 @@ function netError(msg) {
 // 공방 (public rooms) sit on fixed codes PB01..PB12, so the menu can list them by asking each code who's there
 const PUB_SLOTS = 12;
 const pubCode = i => 'PB' + String(i).padStart(2, '0');
-function hostRoom(mode, type, attempt = 0, pub = false) {
+// the free PeerJS signaling server drops out now and then: these errors are worth a quiet retry
+const PEER_NET_ERRORS = ['network', 'server-error', 'socket-error', 'socket-closed'];
+const PEER_RETRIES = 3;
+function hostRoom(mode, type, attempt = 0, pub = false, tries = 0) {
   if (typeof Peer === 'undefined') return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
   const code = pub ? pubCode(attempt + 1) : makeRoomCode();
   const peer = new Peer(PEER_PREFIX + code, { debug: 0 });
@@ -3539,11 +3548,16 @@ function hostRoom(mode, type, attempt = 0, pub = false) {
   peer.on('error', err => {
     // code taken: pick another (공방: the next free slot)
     if (err.type === 'unavailable-id' && attempt < (pub ? PUB_SLOTS - 1 : 5)) { peer.destroy(); return hostRoom(mode, type, attempt + 1, pub); }
+    if (PEER_NET_ERRORS.includes(err.type) && tries < PEER_RETRIES && net.peer === peer && !net.hostRoom) {
+      peer.destroy();
+      $('menu-error').textContent = '서버 연결 재시도 중… (' + (tries + 1) + '/' + PEER_RETRIES + ')';
+      return setTimeout(() => { if (net.peer === peer) hostRoom(mode, type, attempt, pub, tries + 1); }, 1500);
+    }
     netError(pub && err.type === 'unavailable-id' ? '일반방 자리가 다 찼어요 (일반방 체크를 끄고 코드 방으로 만들어 주세요)' : '방을 열 수 없어요 (' + err.type + ')');
   });
   peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });   // keep the code reachable for late joiners
 }
-function joinRoom(code) {
+function joinRoom(code, tries = 0) {
   if (typeof Peer === 'undefined') return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
   const peer = new Peer({ debug: 0 });
   net.peer = peer;
@@ -3570,6 +3584,11 @@ function joinRoom(code) {
   });
   peer.on('error', err => {
     clearTimeout(giveUp);
+    if (PEER_NET_ERRORS.includes(err.type) && tries < PEER_RETRIES && net.peer === peer && !net.send) {
+      peer.destroy();
+      $('menu-error').textContent = '서버 연결 재시도 중… (' + (tries + 1) + '/' + PEER_RETRIES + ')';
+      return setTimeout(() => { if (net.peer === peer) joinRoom(code, tries + 1); }, 1500);
+    }
     netError(err.type === 'peer-unavailable' ? '방을 찾을 수 없어요 (코드 확인)' : '연결 실패 (' + err.type + ')');
   });
 }
@@ -4783,17 +4802,26 @@ function applyAspect() {
   renderer.setSize(cw, h, false);
   const c = renderer.domElement.style;
   c.width = cw + 'px';
+  c.height = h + 'px';
   c.margin = aspectMode === 'black' ? '0 auto' : '';
   document.body.style.background = aspectMode === 'black' ? '#000' : '';
 }
 window.addEventListener('resize', applyAspect);
 const aspectSelect = document.getElementById('aspect-select');
-aspectSelect.value = aspectMode;
-aspectSelect.addEventListener('change', e => {
-  aspectMode = e.target.value;
+const aspectButtons = document.querySelectorAll('#aspect-pick [data-aspect]');
+function setAspect(m) {
+  aspectMode = m;
   try { localStorage.setItem('aspectMode', aspectMode); } catch (err) { /* storage blocked */ }
+  syncAspectUI();
   applyAspect();
-});
+}
+function syncAspectUI() {
+  aspectSelect.value = aspectMode;
+  aspectButtons.forEach(b => b.classList.toggle('ghost', b.dataset.aspect !== aspectMode));
+}
+aspectSelect.addEventListener('change', e => setAspect(e.target.value));
+aspectButtons.forEach(b => b.addEventListener('click', () => setAspect(b.dataset.aspect)));
+syncAspectUI();
 applyAspect();
 
 animate();
