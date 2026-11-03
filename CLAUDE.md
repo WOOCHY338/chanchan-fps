@@ -26,7 +26,7 @@
 - 보이스: PeerJS 미디어 풀메시, V 팀 / U 전체.
 - 경쟁전: `rankedMatch`, `startQueueScreen`, `ranked_rooms` 테이블, 티어 `divName` (스톤1 → 챌린저2, 챔피언 = 상위 5명).
 - 상점: `AK_SKINS`, `RARITY`, `GEM_LOOKS`/`gemTexture`(케이스 하드닝 텍스처), `applyAkSkin`, `openCase`, `buyItem`, `ITEM_PRICE`, `refreshShop`.
-- 나만의 스킨: `custom`, `CUSTOM_GUNS`(rifle·sniper), `applyCustom`, `applySniperSkin`, `setCustomImage`, `renderCustomEditor`. 디자인은 **계정에 저장** (`custom_skins` 테이블, 본인만 읽기 / `save_custom_skin(gun, design)` RPC, 0.6초 디바운스) → 어느 기기에서 로그인해도 같고 남은 못 봄. `loadCustom()`이 로그인 시 불러오고 로그아웃 시 초기화. 구매는 서버(`buy_item('custom')`, 100크레딧, skins_owned.skin='custom').
+- 나만의 스킨: `custom`, `CUSTOM_GUNS`(rifle·sniper), `applyCustom`, `applySniperSkin`, `setCustomImage`, `renderCustomEditor`, `customTextures`(부위별 텍스처: 부위 색 바탕 + 사진 배치 `parts`/`px`/`py`/`size`), `drawCustomPreview`(실제 모델 렌더). 디자인은 **계정에 저장** (`custom_skins` 테이블, 본인만 읽기 / `save_custom_skin(gun, design)` RPC, 0.6초 디바운스) → 어느 기기에서 로그인해도 같고 남은 못 봄. `loadCustom()`이 로그인 시 불러오고 로그아웃 시 초기화. 구매는 서버(`buy_item('custom')`, 100크레딧, skins_owned.skin='custom').
 - 스킨 UV: `skinParts()`가 총 옆면 기준 두 번째 UV(`uvSkin`)를 만들어서 텍스처 스킨이 총 전체에 이어지게 함 (u: 개머리판 0 → 총구 1).
 - 설정: `#settings-panel` 하나를 메인 화면 "설정" 페이지(`#settings-home`, class `in-page`)와 게임 중 ESC(떠 있는 패널) 사이에서 옮겨 씀. 값은 localStorage `settings`(JSON)에 저장 (`SAVED_SETTINGS`).
 - 그래픽: `GFX_TIERS` (high/mid/low = 그림자 품질), `setQuality`, `setTier`, `gfxFrame`(FPS 측정 + 자동 조절). **해상도는 절대 낮추지 않음** (사용자 친구들이 싫어함). 안티앨리어싱은 `gfxAA`(새로고침 후 적용).
@@ -44,6 +44,7 @@
 - Windows 경로가 길어서 git은 `git -c core.longpaths=true ...`.
 
 ## 작업 기록 (최신이 위)
+- 2026-11-03: 나만의 스킨 사진을 원하는 부분에만: 넣을 부위(금속/나무·몸통/탄창) 선택 + 좌우·위아래·크기 조절, 사진 비율 유지. 미리보기는 실제 3D 총을 옆에서 렌더링(`drawCustomPreview`).
 - 2026-11-03: 나만의 스킨 디자인을 브라우저(localStorage) 대신 계정(Supabase `custom_skins`)에 저장하도록 변경.
 - 2026-11-03: 블루젬 A-K를 실제 CS2 케이스 하드닝 #661처럼 다시 만듦 (총 전체에 이어지는 패턴, 광택 금속). 레드젬도 같은 방식.
   - 나만의 스킨 (A-K·저격총, 100크레딧): 부위별 색상 조정 또는 PNG 그림 + 색조/채도/밝기 조절.

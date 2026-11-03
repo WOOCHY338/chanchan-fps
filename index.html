@@ -249,7 +249,8 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 #custom-editor input[type=color] { width: 38px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; }
 #custom-editor input[type=range] { width: 130px; }
 #ce-preview { width: 100%; max-width: 512px; height: auto; align-self: flex-start; background: #1b1e25; border-radius: 6px; }
-#ce-image.hidden, #ce-colors.hidden, #ce-mag.hidden { display: none; }
+#ce-image.hidden, #ce-colors.hidden, #ce-mag.hidden, #ce-mag-part.hidden { display: none; }
+#ce-parts { font-size: 13px; font-weight: 700; }
 .inv-label { font-weight: 800; font-size: 15px; color: #fff; margin-top: 4px; }
 .inv-label small { font-weight: 600; opacity: 0.55; margin-left: 6px; }
 #page-inv .shop-item { width: 190px; }
@@ -487,8 +488,18 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
           <label id="ce-mag">탄창 <input type="color" data-cc="mag"></label>
         </div>
         <div id="ce-image">
-          <div class="row"><button class="btn ghost" id="ce-pick">그림 고르기</button><input type="file" id="ce-file" accept="image/png,image/jpeg,image/webp" hidden>
-            <span class="sub">가로로 긴 그림이 좋아요 · 왼쪽이 개머리판, 오른쪽이 총구</span></div>
+          <div class="row"><button class="btn ghost" id="ce-pick">사진 고르기</button><input type="file" id="ce-file" accept="image/png,image/jpeg,image/webp" hidden>
+            <span class="sub">왼쪽이 개머리판, 오른쪽이 총구 · 사진 없는 곳은 위 색상</span></div>
+          <div class="row" id="ce-parts">사진 넣을 부분
+            <label><input type="checkbox" data-cp="metal"> 금속</label>
+            <label><input type="checkbox" data-cp="wood"> <span id="ce-wood-part">나무</span></label>
+            <label id="ce-mag-part"><input type="checkbox" data-cp="mag"> 탄창</label>
+          </div>
+          <div class="row">
+            <label>좌우 <input type="range" data-cl="px" min="0" max="100" step="1"></label>
+            <label>위아래 <input type="range" data-cl="py" min="0" max="100" step="1"></label>
+            <label>크기 <input type="range" data-cl="size" min="5" max="150" step="1"></label>
+          </div>
           <div class="row">
             <label>색조 <input type="range" data-ca="hue" min="-180" max="180" step="1"></label>
             <label>채도 <input type="range" data-ca="sat" min="0" max="200" step="1"></label>
@@ -4486,13 +4497,21 @@ function applyAkSkin(id) {
 // by its owner), so it follows you to any device you log in on and nobody else sees it.
 const CUSTOM_GUNS = { rifle: 'A-K', sniper: '저격총' };
 const CUSTOM_DEFAULT = {
-  rifle: { mode: 'color', metal: '#45413d', wood: '#c8682c', mag: '#b8561f', img: null, hue: 0, sat: 100, bright: 100, on: false },
-  sniper: { mode: 'color', metal: '#45413d', wood: '#5d6e45', mag: '#45413d', img: null, hue: 0, sat: 100, bright: 100, on: false },
+  rifle: { mode: 'color', metal: '#45413d', wood: '#c8682c', mag: '#b8561f', img: null, hue: 0, sat: 100, bright: 100, on: false,
+    parts: { metal: true, wood: true, mag: true }, px: 50, py: 50, size: 100 },
+  sniper: { mode: 'color', metal: '#45413d', wood: '#5d6e45', mag: '#45413d', img: null, hue: 0, sat: 100, bright: 100, on: false,
+    parts: { metal: true, wood: true, mag: true }, px: 50, py: 50, size: 100 },
 };
 const custom = {};
+function dropCustomTex(cs) {
+  for (const r of Object.values(cs.tex || {})) { r.t.dispose(); r.mat.dispose(); }
+  cs.tex = null;
+}
 function resetCustom(g, design) {
-  if (custom[g] && custom[g].tex) { const t = custom[g].tex; t.t.dispose(); t.steel.dispose(); t.wood.dispose(); }
-  custom[g] = { ...CUSTOM_DEFAULT[g], ...(design || {}), tex: null };
+  if (custom[g]) dropCustomTex(custom[g]);
+  const d = { ...CUSTOM_DEFAULT[g], ...(design || {}) };
+  d.parts = { ...CUSTOM_DEFAULT[g].parts, ...(design && design.parts || {}) };
+  custom[g] = { ...d, tex: null };
 }
 for (const g of Object.keys(CUSTOM_GUNS)) resetCustom(g);
 const ownsCustom = () => !!(account.profile && (account.profile.super || shop.owned.custom));
@@ -4513,43 +4532,67 @@ function saveCustom(g) {
   clearTimeout(customSaveT[g]);
   customSaveT[g] = setTimeout(async () => {
     if (!sb || !ownsCustom()) return;
-    const { tex, ...design } = custom[g];
+    const { tex, ...design } = custom[g];   // tex is this device's GPU copy, not part of the design
     const { error } = await sb.rpc('save_custom_skin', { gun: g, design });
     if (error) shopToast('스킨 저장 실패: ' + error.message);
   }, 600);
 }
-// the picture, drawn with the colour adjustments into the decal texture (async: the image loads, then it updates)
-function customTexture(g) {
+// decoded pictures, kept so moving the picture around doesn't decode it again
+const customImgs = {};
+function customImage(src, done) {
+  const c = customImgs[src];
+  if (c) return c.complete ? c : (c.addEventListener('load', done), null);
+  const img = customImgs[src] = new Image();
+  img.addEventListener('load', done);
+  img.src = src;
+  return null;
+}
+// one decal texture per part kind that gets the picture: the part's own colour with the picture placed on top
+// (px / py = picture centre in % of the gun's side, size = picture width in % of the gun's length), with the
+// colour adjustments. Built when the picture is ready; until then the parts show their plain colours.
+function customTextures(g) {
   const cs = custom[g];
-  if (cs.tex) return cs.tex.t;
-  const c = document.createElement('canvas');
-  c.width = 1024; c.height = 384;
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  cs.tex = { t, steel: skinMat(t, false), wood: skinMat(t, false) };
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = cs.metal;   // see-through parts of a PNG show the metal colour
-  ctx.fillRect(0, 0, c.width, c.height);
-  if (cs.img) {
-    const img = new Image();
-    img.onload = () => {
-      ctx.filter = `hue-rotate(${cs.hue}deg) saturate(${cs.sat}%) brightness(${cs.bright}%)`;
-      ctx.drawImage(img, 0, 0, c.width, c.height);
-      ctx.filter = 'none';
-      t.needsUpdate = true;
-      drawCustomPreview();
-    };
-    img.src = cs.img;
+  if (cs.tex) return cs.tex;
+  const img = customImage(cs.img, () => { if (custom[g] === cs && !cs.tex) { customRepaint(g); drawCustomPreview(); } });
+  if (!img) return null;
+  cs.tex = {};
+  for (const role of ['metal', 'wood', 'mag']) {
+    if (!cs.parts[role]) continue;
+    const c = document.createElement('canvas');
+    c.width = 1024; c.height = 384;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = cs[role];   // around the picture (and see-through bits of a PNG): the part's colour
+    ctx.fillRect(0, 0, c.width, c.height);
+    const w = c.width * cs.size / 100, h = w * img.height / img.width;
+    ctx.filter = `hue-rotate(${cs.hue}deg) saturate(${cs.sat}%) brightness(${cs.bright}%)`;
+    ctx.drawImage(img, c.width * cs.px / 100 - w / 2, c.height * (1 - cs.py / 100) - h / 2, w, h);
+    ctx.filter = 'none';
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    cs.tex[role] = { t, mat: skinMat(t, false) };
   }
-  return t;
+  return cs.tex;
 }
 function applyCustom(g) {
   const cs = custom[g], parts = g === 'rifle' ? akParts : srParts;
-  const tex = cs.mode === 'image' && cs.img ? customTexture(g) : null;
-  paintParts(parts, tex, cs.tex, () => true, ({ role, base }) => {
-    const hex = parseInt((role === 'wood' ? cs.wood : role === 'mag' ? cs.mag : cs.metal).slice(1), 16);
-    return base === C.metalLight ? lighter(hex) : base === C_AWP_DARK ? new THREE.Color(hex).offsetHSL(0, 0, -0.06).getHex() : hex;
-  });
+  const tex = cs.mode === 'image' && cs.img ? customTextures(g) : null;
+  for (const p of parts) {
+    const { role, base } = p;
+    if (tex && tex[role]) {
+      p.mesh.geometry.setAttribute('uv', p.uvSkin);
+      p.mesh.material = tex[role].mat;
+      continue;
+    }
+    p.mesh.geometry.setAttribute('uv', p.uvPaper);
+    p.mesh.material = p.paper;
+    const hex = parseInt(cs[role].slice(1), 16);
+    p.paper.color.setHex(base === C.metalLight ? lighter(hex) : base === C_AWP_DARK ? new THREE.Color(hex).offsetHSL(0, 0, -0.06).getHex() : hex);
+  }
+}
+// repaint a gun's custom design if it is the one in use
+function customRepaint(g) {
+  if (g === 'rifle' && akSkin === 'custom') applyCustom('rifle');
+  if (g === 'sniper') applySniperSkin();
 }
 // the AWP has no case skins: it is either stock or your own design
 function applySniperSkin() {
@@ -4558,19 +4601,18 @@ function applySniperSkin() {
 }
 // something changed in the editor: rebuild that gun's look if it is being used
 function customChanged(g) {
-  const cs = custom[g];
-  if (cs.tex) { cs.tex.t.dispose(); cs.tex.steel.dispose(); cs.tex.wood.dispose(); cs.tex = null; }
+  dropCustomTex(custom[g]);
   saveCustom(g);
-  if (g === 'rifle' && akSkin === 'custom') applyCustom('rifle');
-  if (g === 'sniper') applySniperSkin();
+  customRepaint(g);
   drawCustomPreview();
 }
 function setCustomImage(g, file) {
   if (!file || !/^image\//.test(file.type)) return shopToast('PNG나 JPG 그림 파일을 넣어 주세요');
   const img = new Image();
   img.onload = () => {
+    const k = Math.min(1, 1024 / Math.max(img.width, img.height));   // keep the photo's own shape
     const c = document.createElement('canvas');
-    c.width = 1024; c.height = 384;
+    c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
     URL.revokeObjectURL(img.src);
     const cs = custom[g];
@@ -4785,24 +4827,45 @@ function renderSkinInventory() {
 
 // 나만의 스킨 editor (inventory): which gun, colour or picture, and a flat side-view preview
 const ce = { gun: 'rifle' };
-// rough side silhouettes in preview space (512×192): [role, x, y, w, h]
-const CE_SHAPES = {
-  rifle: [['wood', 20, 78, 120, 34], ['wood', 30, 108, 60, 36], ['metal', 140, 70, 170, 40], ['wood', 300, 80, 70, 26], ['metal', 370, 84, 120, 10],
-    ['mag', 250, 110, 40, 60], ['metal', 200, 108, 14, 34], ['metal', 310, 62, 40, 10]],
-  sniper: [['wood', 20, 82, 230, 40], ['wood', 40, 118, 70, 30], ['metal', 160, 74, 110, 22], ['metal', 270, 80, 220, 10],
-    ['metal', 170, 44, 120, 20], ['metal', 160, 40, 18, 28], ['metal', 285, 38, 22, 32], ['metal', 200, 96, 30, 26]],
-};
+// the real gun model, seen from its right side (stock left, muzzle right, like the picture), rendered once into
+// the preview and then the normal frame is drawn again in the same task, so the game canvas never shows it
 function drawCustomPreview() {
   const cv = $('ce-preview');
-  if (!cv) return;
-  const g = cv.getContext('2d'), cs = custom[ce.gun];
-  g.clearRect(0, 0, cv.width, cv.height);
-  const pic = cs.mode === 'image' && cs.img && cs.tex ? cs.tex.t.image : null;
-  for (const [role, x, y, w, h] of CE_SHAPES[ce.gun]) {
-    if (pic) g.drawImage(pic, x / 512 * pic.width, y / 192 * pic.height, w / 512 * pic.width, h / 192 * pic.height, x, y, w, h);
-    else { g.fillStyle = cs[role]; g.fillRect(x, y, w, h); }
-    g.strokeStyle = '#111'; g.lineWidth = 2; g.strokeRect(x, y, w, h);
-  }
+  if (!cv || $('custom-editor').classList.contains('hidden')) return;
+  const g = ce.gun, root = g === 'rifle' ? gun : srGun, parts = g === 'rifle' ? akParts : srParts;
+  applyCustom(g);
+  const changed = [];
+  const show = (o, v) => { if (o.visible !== v) { changed.push([o, o.visible]); o.visible = v; } };
+  const chain = new Set();
+  for (let o = root; o; o = o.parent) { chain.add(o); show(o, true); }
+  for (const o of vmCamera.children) if (!chain.has(o)) show(o, false);   // knife, other guns
+  const mine = new Set(parts.map(p => p.mesh));
+  root.traverse(o => { if (o.isMesh && !mine.has(o) && !(o.parent && mine.has(o.parent))) show(o, false); });   // arms
+  vmScene.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  for (const p of parts) box.expandByObject(p.mesh);
+  const c = box.getCenter(new THREE.Vector3()), q = root.getWorldQuaternion(new THREE.Quaternion());
+  const len = box.getSize(new THREE.Vector3()).length();
+  const cam = new THREE.PerspectiveCamera(20, cv.width / cv.height, 0.01, 20);
+  cam.position.copy(c).addScaledVector(new THREE.Vector3(1, 0.08, 0).applyQuaternion(q).normalize(), len * 1.3);
+  cam.up.set(0, 1, 0).applyQuaternion(q);
+  cam.lookAt(c);
+  const clear = renderer.getClearColor(new THREE.Color()), clearA = renderer.getClearAlpha();
+  renderer.setSize(cv.width * 2, cv.height * 2, false);
+  renderer.setClearColor(0x1b1e25, 1);
+  renderer.clear();
+  renderer.render(vmScene, cam);
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(renderer.domElement, 0, 0, cv.width, cv.height);
+  for (const [o, v] of changed) o.visible = v;
+  renderer.setClearColor(clear, clearA);
+  applyAspect();
+  if (g === 'rifle') applyAkSkin(akSkin); else applySniperSkin();
+  renderer.clear();
+  renderer.render(scene, camera);
+  renderer.clearDepth();
+  renderer.render(vmScene, vmCamera);
 }
 function renderCustomEditor() {
   const owned = ownsCustom();
@@ -4812,15 +4875,18 @@ function renderCustomEditor() {
   const cs = custom[ce.gun];
   for (const b of document.querySelectorAll('#ce-guns .btn')) b.classList.toggle('ghost', b.dataset.cg !== ce.gun);
   for (const b of document.querySelectorAll('#ce-modes .btn')) b.classList.toggle('ghost', b.dataset.cm !== cs.mode);
-  $('ce-colors').classList.toggle('hidden', cs.mode !== 'color');
   $('ce-image').classList.toggle('hidden', cs.mode !== 'image');
   $('ce-mag').classList.toggle('hidden', ce.gun !== 'rifle');
+  $('ce-mag-part').classList.toggle('hidden', ce.gun !== 'rifle');
   $('ce-wood-label').firstChild.textContent = ce.gun === 'rifle' ? '나무 ' : '몸통 ';
+  $('ce-wood-part').textContent = ce.gun === 'rifle' ? '나무' : '몸통';
+  for (const i of document.querySelectorAll('#custom-editor [data-cp]')) i.checked = !!cs.parts[i.dataset.cp];
+  for (const i of document.querySelectorAll('#custom-editor [data-cl]')) i.value = cs[i.dataset.cl];
   for (const i of document.querySelectorAll('#custom-editor [data-cc]')) i.value = cs[i.dataset.cc];
   for (const i of document.querySelectorAll('#custom-editor [data-ca]')) i.value = cs[i.dataset.ca];
   const on = ce.gun === 'rifle' ? akSkin === 'custom' : cs.on;
   $('ce-equip').textContent = on ? `${CUSTOM_GUNS[ce.gun]}에 장착됨 · 해제` : `${CUSTOM_GUNS[ce.gun]}에 장착`;
-  if (cs.mode === 'image' && cs.img) customTexture(ce.gun);   // preview draws from it
+  if (cs.mode === 'image' && cs.img) customTextures(ce.gun);   // preview draws from it
   drawCustomPreview();
 }
 for (const b of document.querySelectorAll('#ce-guns .btn')) b.onclick = () => { ce.gun = b.dataset.cg; renderCustomEditor(); };
@@ -4832,6 +4898,8 @@ for (const b of document.querySelectorAll('#ce-modes .btn')) b.onclick = () => {
 };
 for (const i of document.querySelectorAll('#custom-editor [data-cc]')) i.oninput = () => { custom[ce.gun][i.dataset.cc] = i.value; customChanged(ce.gun); renderSkinTiles(); };
 for (const i of document.querySelectorAll('#custom-editor [data-ca]')) i.onchange = () => { custom[ce.gun][i.dataset.ca] = +i.value; customChanged(ce.gun); renderSkinTiles(); };
+for (const i of document.querySelectorAll('#custom-editor [data-cp]')) i.onchange = () => { custom[ce.gun].parts[i.dataset.cp] = i.checked; customChanged(ce.gun); };
+for (const i of document.querySelectorAll('#custom-editor [data-cl]')) i.oninput = () => { custom[ce.gun][i.dataset.cl] = +i.value; customChanged(ce.gun); };
 $('ce-pick').onclick = () => $('ce-file').click();
 $('ce-file').onchange = e => { setCustomImage(ce.gun, e.target.files[0]); e.target.value = ''; };
 $('ce-equip').onclick = async () => {
