@@ -248,7 +248,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 #custom-editor label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
 #custom-editor input[type=color] { width: 38px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; }
 #custom-editor input[type=range] { width: 130px; }
-#ce-preview { width: 100%; max-width: 680px; height: auto; align-self: flex-start; background: #1b1e25; border-radius: 6px; touch-action: none; }
+#ce-preview { width: auto; max-width: 100%; max-height: 62vh; height: auto; align-self: flex-start; background: #1b1e25; border-radius: 6px; touch-action: none; }
 #ce-sel.off { opacity: 0.45; }
 #ce-colors, #ce-sel { font-size: 13px; font-weight: 700; }
 #ce-image.hidden, #ce-colors.hidden, #ce-mag.hidden, #ce-mag-part.hidden { display: none; }
@@ -494,7 +494,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
           <button class="btn ghost" id="ce-del">지우기</button>
           <span class="sub" id="ce-count"></span>
         </div>
-        <div class="sub">스티커를 끌어서 옮기고 · <b>■</b> 끌어서 크기 · <b>●</b> 끌어서 회전 · 휠: 크기, Shift+휠: 회전</div>
+        <div class="sub"><b>게임 화면 그대로</b>예요 (흐린 건 팔) · 스티커를 끌어서 옮기고 · <b>■</b> 끌어서 크기 · <b>●</b> 끌어서 회전 · 휠: 크기, Shift+휠: 회전</div>
         <canvas id="ce-preview" width="1024" height="400"></canvas>
         <div class="row" id="ce-sel">선택한 스티커
           <label>색조 <input type="range" data-ca="hue" min="-180" max="180" step="1" value="0"></label>
@@ -4421,7 +4421,9 @@ function gemTexture(look) {
 }
 // the A-K's and AWP's own parts get their own materials so a skin doesn't repaint the other guns.
 // role: metal / wood (A-K furniture, AWP body) / mag. Hands and sleeves keep their look.
-function skinParts(root, roleOf) {
+const DECAL_CAM = new THREE.PerspectiveCamera(58, 16 / 9, 0.01, 10);
+DECAL_CAM.updateProjectionMatrix();
+function skinParts(root, roleOf, restPos, restRot) {
   const parts = [];
   root.traverse(o => {
     if (!o.isMesh || !o.material || !o.material.color) return;
@@ -4441,32 +4443,59 @@ function skinParts(root, roleOf) {
     for (let i = 0; i < pos.count; i++) f(v.fromBufferAttribute(pos, i).applyMatrix4(m), i);
   };
   for (const p of parts) each(p, q => { z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); });
-  // uvDecal (나만의 스킨) uses a texture of two halves: the top half for the right side (and top/bottom faces),
-  // the bottom half for faces looking left, where the picture is drawn mirrored in place so text reads the right
-  // way on the side the player actually sees in game
-  const nm = new THREE.Matrix3(), n = new THREE.Vector3();
+  // 나만의 스킨 stickers are projected from the game's own view camera with the gun at its resting place, so they
+  // land exactly where the player sees them. Each vertex keeps its clip-space position (x, y, w) from that camera
+  // in the decalH attribute (plus 1 = faces the player, 0 = turned away); the shader divides per pixel, which makes
+  // the projection exact with perspective. Faces turned away show only the plain colour.
+  const rest = new THREE.Matrix4().compose(restPos, new THREE.Quaternion().setFromEuler(restRot), new THREE.Vector3(1, 1, 1)).multiply(root.matrix);
+  const proj = DECAL_CAM.projectionMatrix;
+  const eye = new THREE.Vector3().setFromMatrixPosition(rest.clone().invert());   // the player's eye in gun space
+  let x0 = Infinity, x1 = -Infinity, w0 = Infinity, w1 = -Infinity;
+  const nm = new THREE.Matrix3(), n = new THREE.Vector3(), cl = new THREE.Vector4();
   for (const p of parts) {
     const geo = p.mesh.geometry;
     p.uvPaper = geo.attributes.uv;
-    const uv = new Float32Array(geo.attributes.position.count * 2), dec = new Float32Array(uv.length);
+    const uv = new Float32Array(geo.attributes.position.count * 2), dh = new Float32Array(geo.attributes.position.count * 4);
     const nor = geo.attributes.normal;
     nm.getNormalMatrix(m.multiplyMatrices(inv, p.mesh.matrixWorld));
     each(p, (q, i) => {
-      const u = (z1 - q.z) / (z1 - z0), w = (q.y - y0) / (y1 - y0);
-      uv[i * 2] = dec[i * 2] = u;
-      uv[i * 2 + 1] = w;
-      const left = nor && n.fromBufferAttribute(nor, i).applyMatrix3(nm).x < -0.5;
-      dec[i * 2 + 1] = left ? w * 0.5 : 0.5 + w * 0.5;
+      uv[i * 2] = (z1 - q.z) / (z1 - z0);
+      uv[i * 2 + 1] = (q.y - y0) / (y1 - y0);
+      const toEye = eye.clone().sub(q);
+      const facing = !nor || n.fromBufferAttribute(nor, i).applyMatrix3(nm).dot(toEye) > 0;
+      cl.set(q.x, q.y, q.z, 1).applyMatrix4(rest).applyMatrix4(proj);
+      dh.set([cl.x, cl.y, cl.w, facing ? 1 : 0], i * 4);
+      x0 = Math.min(x0, cl.x / cl.w); x1 = Math.max(x1, cl.x / cl.w); w0 = Math.min(w0, cl.y / cl.w); w1 = Math.max(w1, cl.y / cl.w);
     });
     p.uvSkin = new THREE.BufferAttribute(uv, 2);
-    p.uvDecal = new THREE.BufferAttribute(dec, 2);
+    geo.setAttribute('decalH', new THREE.BufferAttribute(dh, 4));
   }
-  parts.aspect = (y1 - y0) / (z1 - z0);
-  parts.box = { z0, z1, y0, y1 };   // height / length of the gun's side, so pictures keep their shape
+  // sticker texture = the part of the screen the gun covers (NDC, cut to the screen: the rest is never seen),
+  // at the screen's true shape
+  x0 = Math.max(x0, -1); x1 = Math.min(x1, 1); w0 = Math.max(w0, -1); w1 = Math.min(w1, 1);
+  parts.aspect = ((w1 - w0) * 9) / ((x1 - x0) * 16);
+  parts.proj = { x0, x1, y0: w0, y1: w1, camInGun: rest.clone().invert() };
   return parts;
 }
-const akParts = skinParts(gun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C.wood || hex === C.woodDark ? 'wood' : hex === C.mag ? 'mag' : null);
-const srParts = skinParts(srGun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C_AWP || hex === C_AWP_DARK ? 'wood' : null);
+const akParts = skinParts(gun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C.wood || hex === C.woodDark ? 'wood' : hex === C.mag ? 'mag' : null, VM_BASE, VM_ROT);
+const srParts = skinParts(srGun, hex => hex === C.metal || hex === C.metalLight ? 'metal' : hex === C_AWP || hex === C_AWP_DARK ? 'wood' : null, SR_BASE, SR_ROT);
+// 나만의 스킨 sticker material: samples the sticker texture by the projected position (see skinParts)
+function stickerMat(tex, parts) {
+  const m = new THREE.MeshPhongMaterial({ map: tex, color: 0xffffff, flatShading: true, shininess: 25, specular: 0x222222 });
+  const pr = parts.proj;
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uDecalMin = { value: new THREE.Vector2(pr.x0, pr.y0) };
+    sh.uniforms.uDecalMax = { value: new THREE.Vector2(pr.x1, pr.y1) };
+    sh.vertexShader = 'attribute vec4 decalH;\nvarying vec4 vDecal;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvDecal = decalH;');
+    sh.fragmentShader = 'uniform vec2 uDecalMin;\nuniform vec2 uDecalMax;\nvarying vec4 vDecal;\n' + sh.fragmentShader.replace('#include <map_fragment>', `
+      vec2 dUv = (vDecal.xy / vDecal.z - uDecalMin) / (uDecalMax - uDecalMin);
+      bool onSheet = vDecal.w > 0.5 && dUv.x >= 0.0 && dUv.x <= 1.0 && dUv.y >= 0.0 && dUv.y <= 1.0;
+      dUv = onSheet ? vec2(dUv.x, 0.5 + 0.5 * dUv.y) : vec2(0.5, 0.25);   // off the sheet or turned away: plain colour
+      diffuseColor *= texture2D(map, dUv);`);
+  };
+  m.customProgramCacheKey = () => 'decal';
+  return m;
+}
 // polished steel for texture skins (the paper look stays for paint skins)
 function skinMat(tex, shiny) {
   return new THREE.MeshPhongMaterial({ map: tex, color: 0xffffff, flatShading: true, shininess: shiny ? 90 : 25, specular: shiny ? 0x8899bb : 0x222222 });
@@ -4573,8 +4602,8 @@ function customImage(src, done) {
   return null;
 }
 const customParts = g => g === 'rifle' ? akParts : srParts;
-// the decal texture is the gun's side at its true shape; two halves (see skinParts): top = right side,
-// bottom = left side with every sticker mirrored in place so it reads the right way there too
+// the decal texture is the gun as the player sees it, at its true shape; top half = faces toward the player
+// (stickers), bottom half = faces turned away (plain colour), see skinParts
 function decalSize(g) {
   const W = 1024;
   return { W, H: Math.round(W * customParts(g).aspect) };
@@ -4583,15 +4612,17 @@ function paintStickers(g, ctx, role) {
   const cs = custom[g], { W, H } = decalSize(g);
   ctx.fillStyle = cs[role];   // under and around the stickers: the part's colour
   ctx.fillRect(0, 0, W, H * 2);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();   // stickers stay in the top half
   for (const st of cs.stickers) {
     const img = customImage(st.img, () => customRefresh(g));
     if (!img) continue;
     const w = W * st.s, h = w * img.height / img.width, x = W * st.x, y = H * (1 - st.y);
     ctx.filter = `hue-rotate(${st.hue || 0}deg) saturate(${st.sat ?? 100}%) brightness(${st.bright ?? 100}%)`;
     ctx.save(); ctx.translate(x, y); ctx.rotate(st.r || 0); ctx.drawImage(img, -w / 2, -h / 2, w, h); ctx.restore();
-    ctx.save(); ctx.translate(x, H + y); ctx.scale(-1, 1); ctx.rotate(st.r || 0); ctx.drawImage(img, -w / 2, -h / 2, w, h); ctx.restore();
     ctx.filter = 'none';
   }
+  ctx.restore();
 }
 // one texture per part kind that takes stickers; the other parts are just painted their colour
 function customTextures(g) {
@@ -4607,7 +4638,7 @@ function customTextures(g) {
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 4;
-    cs.tex[role] = { t, mat: skinMat(t, false) };
+    cs.tex[role] = { t, mat: stickerMat(t, customParts(g)) };
   }
   return cs.tex;
 }
@@ -4624,7 +4655,7 @@ function applyCustom(g) {
   for (const p of customParts(g)) {
     const { role, base } = p;
     if (tex && tex[role]) {
-      p.mesh.geometry.setAttribute('uv', p.uvDecal);
+      p.mesh.geometry.setAttribute('uv', p.uvPaper);
       p.mesh.material = tex[role].mat;
       continue;
     }
@@ -4874,20 +4905,22 @@ function renderSkinInventory() {
   renderCustomEditor();
 }
 
-// 나만의 스킨 editor (inventory). The preview is the real gun model seen straight from its right side with an
-// orthographic camera (stock left, muzzle right), drawn by its own small renderer, so a point on the preview maps
-// exactly to a spot on the gun's side: stickers are dragged, resized and rotated right there.
+// 나만의 스킨 editor (inventory). The preview is the real gun model through the game's own view camera (the
+// same one the stickers are projected from), cropped to the gun and drawn by its own small renderer, so a point on
+// the preview is exactly a spot on the sticker texture and it looks the way it will in game. Arms are drawn faintly
+// on top so you can see what your hands will cover.
 const ce = { gun: 'rifle', sel: -1, drag: null, renderer: null };
 const CE_PAD_X = 1.06, CE_PAD_Y = 1.25;
 // preview pixels ↔ gun side (u from the stock 0..1, v from the bottom 0..1)
 function ceView() {
-  const { z0, z1, y0, y1 } = customParts(ce.gun).box, L = z1 - z0, Hy = y1 - y0;
-  const Wf = L * CE_PAD_X, Hf = Hy * CE_PAD_Y, cv = $('ce-preview');
+  const pr = customParts(ce.gun).proj, cv = $('ce-preview');
+  const W = pr.x1 - pr.x0, H = pr.y1 - pr.y0, padX = W * (CE_PAD_X - 1) / 2, padY = H * (CE_PAD_Y - 1) / 2;
+  const L = pr.x0 - padX, R = pr.x1 + padX, T = pr.y1 + padY, B = pr.y0 - padY;
   return {
-    L, Hy, Wf, Hf, cw: cv.width, ch: cv.height,
-    toPx: (u, v) => [(0.5 - (z1 - u * L - (z0 + z1) / 2) / Wf) * cv.width, (0.5 - (y0 + v * Hy - (y0 + y1) / 2) / Hf) * cv.height],
-    toUv: (px, py) => [(z1 - ((z0 + z1) / 2 - (px / cv.width - 0.5) * Wf)) / L, ((y0 + y1) / 2 + (0.5 - py / cv.height) * Hf - y0) / Hy],
-    unit: cv.width * L / Wf,   // preview pixels per gun length
+    L, R, T, B, cw: cv.width, ch: cv.height,
+    toPx: (u, v) => [(pr.x0 + u * W - L) / (R - L) * cv.width, (T - (pr.y0 + v * H)) / (T - B) * cv.height],
+    toUv: (px, py) => [(L + px / cv.width * (R - L) - pr.x0) / W, (T - py / cv.height * (T - B) - pr.y0) / H],
+    unit: cv.width * W / (R - L),   // preview pixels per sticker-texture width
   };
 }
 // a sticker's box on the preview: centre, half sizes, rotation
@@ -4901,11 +4934,11 @@ const ceHandles = b => ({ size: ceRot(b, b.hw, b.hh), turn: ceRot(b, 0, -b.hh - 
 function drawCustomPreview() {
   const cv = $('ce-preview');
   if (!cv || $('custom-editor').classList.contains('hidden')) return;
-  const g = ce.gun, root = g === 'rifle' ? gun : srGun, parts = customParts(g), { z0, z1, y0, y1 } = parts.box;
-  const ch = Math.round(1024 * (y1 - y0) * CE_PAD_Y / ((z1 - z0) * CE_PAD_X));
+  const g = ce.gun, root = g === 'rifle' ? gun : srGun, parts = customParts(g), pr = parts.proj;
+  const ch = Math.round(1024 * parts.aspect * CE_PAD_Y / CE_PAD_X);   // NDC box × padding at the screen's shape
   if (cv.width !== 1024 || cv.height !== ch) { cv.width = 1024; cv.height = ch; }
   if (!ce.renderer) {
-    ce.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    ce.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     ce.renderer.toneMapping = renderer.toneMapping;
     ce.renderer.toneMappingExposure = renderer.toneMappingExposure;
     ce.renderer.setClearColor(0x1b1e25, 1);
@@ -4913,29 +4946,39 @@ function drawCustomPreview() {
   const R = ce.renderer;
   if (R.domElement.width !== cv.width || R.domElement.height !== cv.height) R.setSize(cv.width, cv.height, false);
   applyCustom(g);
-  // only this gun: no arms, knife or other guns in the shot
+  // only this gun: no knife or other guns; first pass without the arms, second pass only the arms (faint)
   const changed = [];
   const show = (o, v) => { if (o.visible !== v) { changed.push([o, o.visible]); o.visible = v; } };
   const chain = new Set();
   for (let o = root; o; o = o.parent) { chain.add(o); show(o, true); }
   for (const o of vmCamera.children) if (!chain.has(o)) show(o, false);
-  const mine = new Set(parts.map(p => p.mesh));
-  root.traverse(o => { if (o.isMesh && !mine.has(o) && !(o.parent && mine.has(o.parent))) show(o, false); });
+  const mine = new Set(parts.map(p => p.mesh)), arms = [];
+  root.traverse(o => { if (o.isMesh && !mine.has(o) && !(o.parent && mine.has(o.parent))) arms.push(o); });
+  for (const o of arms) show(o, false);
   vmScene.updateMatrixWorld(true);
-  const Wf = (z1 - z0) * CE_PAD_X, Hf = (y1 - y0) * CE_PAD_Y;
-  const cam = new THREE.OrthographicCamera(-Wf / 2, Wf / 2, Hf / 2, -Hf / 2, 0.001, 10);
-  const q = root.getWorldQuaternion(new THREE.Quaternion());
-  const at = root.localToWorld(new THREE.Vector3(0, (y0 + y1) / 2, (z0 + z1) / 2));
-  cam.position.copy(root.localToWorld(new THREE.Vector3(2, (y0 + y1) / 2, (z0 + z1) / 2)));
-  cam.up.set(0, 1, 0).applyQuaternion(q);
-  cam.lookAt(at);
-  cam.updateMatrixWorld();
+  const vw = ceView(), FW = 1600, FH = 900;
+  const cam = new THREE.PerspectiveCamera(DECAL_CAM.fov, FW / FH, DECAL_CAM.near, DECAL_CAM.far);
+  cam.setViewOffset(FW, FH, (vw.L + 1) / 2 * FW, (1 - vw.T) / 2 * FH, (vw.R - vw.L) / 2 * FW, (vw.T - vw.B) / 2 * FH);
+  cam.matrixAutoUpdate = false;
+  cam.matrixWorld.multiplyMatrices(root.matrixWorld, pr.camInGun);
+  cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+  R.setClearColor(0x1b1e25, 1);
   R.clear();
   R.render(vmScene, cam);
-  for (const [o, v] of changed) o.visible = v;
-  if (g === 'rifle') applyAkSkin(akSkin); else applySniperSkin();
   const ctx = cv.getContext('2d');
   ctx.drawImage(R.domElement, 0, 0);
+  for (const o of mine) show(o, false);
+  for (const o of arms) o.visible = true;
+  R.setClearColor(0x000000, 0);
+  R.clear();
+  R.render(vmScene, cam);
+  ctx.globalAlpha = 0.45;
+  ctx.drawImage(R.domElement, 0, 0);
+  ctx.globalAlpha = 1;
+  for (const o of arms) o.visible = false;
+  for (const o of mine) o.visible = true;
+  for (const [o, v] of changed) o.visible = v;
+  if (g === 'rifle') applyAkSkin(akSkin); else applySniperSkin();
   // the picked sticker: outline, ■ size handle, ● turn handle
   const st = custom[g].stickers[ce.sel];
   if (!st) return;
