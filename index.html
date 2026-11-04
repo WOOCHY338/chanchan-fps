@@ -3462,7 +3462,7 @@ const net = {
   remotes: new Map(),                        // id -> { avatar, buf, team, name, hp, dead, label }
   sendT: 0,
 };
-const INTERP_DELAY = 0.1;
+const INTERP_DELAY = 0.07;
 const tagRay = new THREE.Raycaster(), _tagFrom = new THREE.Vector3(), _tagTo = new THREE.Vector3();   // render others 100 ms in the past so there are always two snapshots to blend
 const practiceDummies = dummies.slice();
 camera.position.set(0, 1.6, 0);   // menu backdrop: stand in the arena instead of the default camera pose
@@ -3621,8 +3621,9 @@ function createHostRoom(code, mode, type = 'elim') {
       const w = room.score.blue >= RULES.winScore ? 'blue' : room.score.red >= RULES.winScore ? 'red' : null;
       if (w) endMatch(w); else startRound();
     }
-    broadcast({ t: 'snap', timer: room.timer, phase: room.phase, bomb: room.bomb,
-      ps: [...room.players.values()].map(p => ({ id: p.id, ...p.state, hp: p.hp, dead: p.dead, act: p.actT > 0 ? p.act : null })) });
+    broadcast({ t: 'snap', timer: room.timer, phase: room.phase, bomb: room.bomb, ht: +(performance.now() / 1000).toFixed(3),
+      ps: [...room.players.values()].map(p => ({ id: p.id, ...p.state, at: p.stateAt ? +p.stateAt.toFixed(3) : undefined,
+        hp: p.hp, dead: p.dead, act: p.actT > 0 ? p.act : null })) });
   }
   function addPlayer(send, pid) {
     const id = room.nextId++;
@@ -3688,13 +3689,22 @@ function createHostRoom(code, mode, type = 'elim') {
         room.score = { blue: 0, red: 0 }; room.round = 0;
         startRound();
         break;
-      case 'state':
+      case 'state': {
         if (room.phase === 'lobby' || me.dead || !Array.isArray(m.p)) return;
+        // when this state was taken, in host time: the sender's own clock (ts) plus the smallest delay seen so far
+        // (creeping up slowly in case the route gets slower), so Wi-Fi jitter and slow frames don't bend the timing
+        const hn = performance.now() / 1000;
+        if (Number.isFinite(+m.ts) && +m.ts > 0) {
+          const off = hn - m.ts;
+          me.off = me.off === undefined || off < me.off ? off : me.off + (off - me.off) * 0.02;
+          me.stateAt = Math.min(hn, +m.ts + me.off);
+        } else me.stateAt = hn;
         me.state = { p: m.p.slice(0, 3).map(Number), yaw: +m.yaw || 0, pitch: +m.pitch || 0, w: NET_WEAPONS.includes(m.w) ? m.w : 'rifle', ads: !!m.ads,
           cr: Math.max(0, Math.min(1, +m.cr || 0)) };
         { const act = m.act === 'plant' || m.act === 'defuse' ? m.act : null;
           if (act !== me.act) { me.act = act; me.actT = 0; } }
         break;
+      }
       case 'shot':
         if (room.phase === 'live' && !me.dead) broadcast({ t: 'shot', id, o: m.o, e: m.e }, id);
         break;
@@ -4002,6 +4012,7 @@ function makeAvatar(p) {
 function clearRemotes() {
   for (const r of net.remotes.values()) scene.remove(r.avatar);
   net.remotes.clear();
+  net.hOff = undefined;   // a new room may have a different host clock
 }
 function syncRemotes() {
   for (const p of net.players) {
@@ -5789,8 +5800,14 @@ function onNetMessage(m) {
         showBanner(`${txt}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${why}</small>`, 2.8);
       }
       break;
-    case 'snap':
+    case 'snap': {
       net.timer = m.timer; net.phase = m.phase; net.bomb = m.bomb || null;
+      // host clock → my clock: the smallest delay seen (creeping up slowly)
+      const at = performance.now() / 1000, stamped = Number.isFinite(+m.ht) && +m.ht > 0;
+      if (stamped) {
+        const off = at - m.ht;
+        net.hOff = net.hOff === undefined || off < net.hOff ? off : net.hOff + (off - net.hOff) * 0.01;
+      }
       for (const s of m.ps) {
         if (s.id === net.id) {
           player.hp = s.hp;
@@ -5800,18 +5817,23 @@ function onNetMessage(m) {
         const r = net.remotes.get(s.id);
         if (!r) continue;
         r.hp = s.hp; r.dead = s.dead;
-        // how evenly this player's snapshots arrive: the draw delay below grows with the gaps and jitter
-        const at = performance.now() / 1000;
-        if (r.lastAt) {
-          const gap = Math.min(0.5, at - r.lastAt);
+        // the moment this state was taken, on my clock (older hosts without stamps: when it arrived)
+        const time = stamped && Number.isFinite(+s.at) ? +s.at + net.hOff : at;
+        const last = r.buf[r.buf.length - 1];
+        if (last && time <= last.time + 0.001) { last.w = s.w; continue; }   // the same state again (host re-sent it): nothing new
+        if (last) {
+          const gap = Math.min(0.5, time - last.time);
           r.gapAvg = r.gapAvg ? r.gapAvg * 0.9 + gap * 0.1 : gap;
-          r.jitter = (r.jitter || 0) * 0.9 + Math.abs(gap - r.gapAvg) * 0.1;
         }
-        r.lastAt = at;
-        r.buf.push({ time: at, p: s.p, yaw: s.yaw, pitch: s.pitch, w: s.w, cr: s.cr || 0 });
+        // how old a state is by the time I get it (beyond the fastest it ever came): the draw delay follows this
+        const age = Math.max(0, Math.min(0.5, at - time));
+        r.ageAvg = r.ageAvg === undefined ? age : r.ageAvg * 0.93 + age * 0.07;
+        r.ageDev = (r.ageDev || 0) * 0.93 + Math.abs(age - r.ageAvg) * 0.07;
+        r.buf.push({ time, p: s.p, yaw: s.yaw, pitch: s.pitch, w: s.w, cr: s.cr || 0 });
         if (r.buf.length > 20) r.buf.shift();
       }
       break;
+    }
     case 'hp':
       if (m.id === net.id) {
         player.hp = m.hp;
@@ -6124,7 +6146,7 @@ function updateNet(dt) {
   net.sendT -= dt;
   if (net.sendT <= 0 && !player.dead) {
     net.sendT = 0.05;
-    netSend({ t: 'state', p: player.position.toArray().map(v => +v.toFixed(3)), yaw: +cam.yaw.toFixed(1), pitch: +cam.pitch.toFixed(1),
+    netSend({ t: 'state', ts: +(performance.now() / 1000).toFixed(3), p: player.position.toArray().map(v => +v.toFixed(3)), yaw: +cam.yaw.toFixed(1), pitch: +cam.pitch.toFixed(1),
       w: loadout.current, ads: ads.held, act: net.act, cr: +player.crouch.toFixed(2) });
   }
 
@@ -6133,9 +6155,11 @@ function updateNet(dt) {
   for (const r of net.remotes.values()) {
     const d = r.avatar, u = d.userData;
     const b = r.buf;
-    // jitter buffer: draw just far enough in the past that the next snapshot has (almost always) arrived
-    const want = Math.min(0.3, Math.max(INTERP_DELAY, (r.gapAvg || 0.05) * 1.5 + (r.jitter || 0) * 3));
-    r.delay = r.delay ? r.delay + (want - r.delay) * Math.min(1, dt * 2) : want;
+    // jitter buffer: draw just far enough in the past that the state after that moment has usually arrived:
+    // one send gap plus how old states are when they get here (Wi-Fi, relay batching, slow frames). The rare
+    // later one is covered by a short straight-on guess and the gentle follow below
+    const want = Math.min(0.22, Math.max(INTERP_DELAY, (r.gapAvg || 0.05) + (r.ageAvg ?? 0.05) + (r.ageDev || 0) * 1.2));
+    r.delay = r.delay ? r.delay + (want - r.delay) * Math.min(1, dt * 1.5) : want;
     const renderTime = now - r.delay;
     // a kill we predicted (see reportHit) that the host never confirmed: stand them back up
     if (u.predT && (r.dead || now - u.predT > 0.8)) { if (!r.dead) { u.dead = false; } u.predT = 0; }
@@ -6144,14 +6168,33 @@ function updateNet(dt) {
       while (i > 0 && b[i - 1].time > renderTime) i--;
       const s1 = b[i], s0 = b[Math.max(0, i - 1)];
       const span = s1.time - s0.time;
-      // past the newest snapshot (a late packet): keep moving the same way for up to 100 ms instead of freezing
+      // past the newest state (a late packet): keep moving the same way for up to 100 ms instead of freezing
       const k = span > 0 ? Math.min(1 + 0.1 / span, Math.max(0, (renderTime - s0.time) / span)) : 1;
-      const px = s0.p[0] + (s1.p[0] - s0.p[0]) * k, py = s0.p[1] + (s1.p[1] - s0.p[1]) * k, pz = s0.p[2] + (s1.p[2] - s0.p[2]) * k;
+      // a smooth curve through the states around (Catmull-Rom, using the one before and after) so turns and
+      // speed changes don't show corners every 50 ms; past the newest one it's a straight extrapolation
+      const sa = b[Math.max(0, i - 2)], sb = b[Math.min(b.length - 1, i + 1)], curve = k >= 0 && k <= 1 && span > 0;
+      const along = (a, p0, p1, c) => {
+        if (!curve) return p0 + (p1 - p0) * k;
+        const m0 = s0 === sa ? p1 - p0 : (p1 - a) * span / Math.max(1e-3, s1.time - sa.time);
+        const m1 = s1 === sb ? p1 - p0 : (c - p0) * span / Math.max(1e-3, sb.time - s0.time);
+        const k2 = k * k, k3 = k2 * k;
+        return (2 * k3 - 3 * k2 + 1) * p0 + (k3 - 2 * k2 + k) * m0 + (-2 * k3 + 3 * k2) * p1 + (k3 - k2) * m1;
+      };
+      const tx = along(sa.p[0], s0.p[0], s1.p[0], sb.p[0]), ty = along(sa.p[1], s0.p[1], s1.p[1], sb.p[1]), tz = along(sa.p[2], s0.p[2], s1.p[2], sb.p[2]);
+      // follow that point closely (~25 ms lag): hides the small step when a late state lands and the curve
+      // shifts, but snaps on a real jump (respawn, teleport)
+      const jump = Math.hypot(tx - d.position.x, ty - d.position.y, tz - d.position.z) > 3 || !u.placed;
+      const f = jump ? 1 : 1 - Math.exp(-dt / 0.025);
+      const px = d.position.x + (tx - d.position.x) * f, py = d.position.y + (ty - d.position.y) * f, pz = d.position.z + (tz - d.position.z) * f;
+      u.placed = true;
       const moved = Math.hypot(px - d.position.x, pz - d.position.z) / Math.max(dt, 1e-3);
       d.position.set(px, py, pz);
       let dy = s1.yaw - s0.yaw;
       dy = ((dy + 540) % 360) - 180;
-      d.rotation.y = (s0.yaw + dy * k) * Math.PI / 180;
+      const targetYaw = (s0.yaw + dy * k) * Math.PI / 180;
+      let dr = targetYaw - d.rotation.y;
+      dr = Math.atan2(Math.sin(dr), Math.cos(dr));
+      d.rotation.y += dr * (jump ? 1 : 1 - Math.exp(-dt / 0.03));
       u.moving = moved > 1;
       u.pitch = s0.pitch + (s1.pitch - s0.pitch) * k;
       u.weapon = s1.w;
