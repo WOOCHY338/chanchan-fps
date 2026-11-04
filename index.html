@@ -841,6 +841,21 @@ function playKnifeSound(name) {
 let gfxAA = true;
 try { gfxAA = localStorage.getItem('gfxAA') !== '0'; } catch (e) { /* storage blocked */ }
 const renderer = new THREE.WebGLRenderer({ antialias: gfxAA, powerPreference: 'high-performance' });
+// weak GPUs (school PCs) can drop the WebGL context: the screen goes black and the game stops.
+// three.js restores it when the browser allows; if that doesn't happen soon, reload instead of staying frozen.
+renderer.domElement.addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  const note = document.createElement('div');
+  note.id = 'gl-lost';
+  note.textContent = '그래픽이 멈췄어요 · 다시 불러오는 중…';
+  note.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#111;color:#fff;font:600 20px sans-serif;z-index:99999';
+  document.body.appendChild(note);
+  renderer.domElement._reloadT = setTimeout(() => location.reload(), 4000);
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  clearTimeout(renderer.domElement._reloadT);
+  const n = document.getElementById('gl-lost'); if (n) n.remove();
+});
 renderer.autoClear = false;
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -900,6 +915,7 @@ function vmMat(color) {
   if (!vmMats[color]) vmMats[color] = new THREE.MeshLambertMaterial({ color, map: paperTex, flatShading: true });
   return vmMats[color];
 }
+const hitboxMat = new THREE.MeshBasicMaterial();   // never drawn: hit-zone meshes stay invisible
 function inked(geo, color) {
   const mesh = new THREE.Mesh(geo, vmMat(color));
   mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), inkMat));
@@ -1306,6 +1322,13 @@ function createDummy(team) {
   part(head, 0.06, 0.09, 0.01, 0x1a1410, -0.08, -0.02, D / 2 + 0.006); // eyes
   part(head, 0.06, 0.09, 0.01, 0x1a1410, 0.08, -0.02, D / 2 + 0.006);
   part(head, 0.1, 0.02, 0.01, 0x1a1410, 0, -0.12, D / 2 + 0.006);      // mouth
+  // hit zones: the paper body is only 14 cm thick from the side, so shots that were on target went past it.
+  // Invisible solid boxes (they ride the same groups, so they follow crouch and walk) take the hits instead.
+  const hitbox = (parent, w, h, d, y) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), hitboxMat); m.position.y = y; m.visible = false; parent.add(m); };
+  hitbox(head, 0.48, 0.5, 0.42, 0);
+  hitbox(torso, 0.56, 0.66, 0.4, 0.31);
+  hitbox(legL, 0.22, 0.8, 0.32, -0.38);
+  hitbox(legR, 0.22, 0.8, 0.32, -0.38);
 
   root.traverse(o => {
     if (!o.isMesh) return;
@@ -5153,15 +5176,13 @@ function drawCustomPreview() {
   if (ce.viewOf !== ce.gun) { ce.viewOf = ce.gun; ce.zoom = 1; ceGameView(); }
   if (cv.width !== CE_W || cv.height !== CE_H) { cv.width = CE_W; cv.height = CE_H; }
   const g = ce.gun, root = g === 'rifle' ? gun : srGun, parts = customParts(g);
-  if (!ce.renderer) {
-    ce.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    ce.renderer.toneMapping = renderer.toneMapping;
-    ce.renderer.toneMappingExposure = renderer.toneMappingExposure;
-    ce.renderer.setClearColor(0x1b1e25, 1);
-    ce.renderer.setSize(CE_W, CE_H, false);
-    ce.light = new THREE.DirectionalLight(0xffffff, 0.9);   // a light that turns with the view, so every side is lit
+  // drawn with the game's own renderer (a second WebGL context doubled GPU memory and froze weak school PCs),
+  // and the view light stays in the scene at 0 so the light count never changes (that recompiled every shader)
+  if (!ce.light) {
+    ce.light = new THREE.DirectionalLight(0xffffff, 0);   // a light that turns with the view, so every side is lit
+    vmScene.add(ce.light, ce.light.target);
   }
-  const R = ce.renderer;
+  const R = renderer;
   applyCustom(g);
   // only this gun: no arms, knife or other guns in the shot
   const changed = [];
@@ -5180,15 +5201,24 @@ function drawCustomPreview() {
   cam.updateMatrixWorld();
   ce.light.position.copy(cam.position).addScaledVector(cam.up, parts.radius * 3);
   ce.light.target.position.copy(root.localToWorld(vw.c.clone()));
-  vmScene.add(ce.light, ce.light.target);
+  ce.light.intensity = 0.9;
   vmScene.updateMatrixWorld(true);
+  // render into the bottom-left corner of the game canvas and copy it out in the same task (the next frame redraws it)
+  const el = R.domElement, size = R.getSize(new THREE.Vector2()), pr = R.getPixelRatio();
+  let pw = Math.min(el.width, CE_W), ph = Math.round(pw * CE_H / CE_W);
+  if (ph > el.height) { ph = el.height; pw = Math.round(ph * CE_W / CE_H); }
+  const clear = R.getClearColor(new THREE.Color()), clearA = R.getClearAlpha();
+  R.setRenderTarget(null);
+  R.setViewport(0, 0, pw / pr, ph / pr); R.setScissor(0, 0, pw / pr, ph / pr); R.setScissorTest(true);
+  R.setClearColor(0x1b1e25, 1);
   R.clear();
   R.render(vmScene, cam);
-  vmScene.remove(ce.light, ce.light.target);
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(el, 0, el.height - ph, pw, ph, 0, 0, CE_W, CE_H);
+  R.setScissorTest(false); R.setViewport(0, 0, size.x, size.y); R.setClearColor(clear, clearA);
+  ce.light.intensity = 0;
   for (const [o, v] of changed) o.visible = v;
   if (g === 'rifle') applyAkSkin(akSkin); else applySniperSkin();
-  const ctx = cv.getContext('2d');
-  ctx.drawImage(R.domElement, 0, 0);
   // the picked sticker: outline, ■ size handle, ● turn handle
   const st = custom[g].stickers[ce.sel];
   if (!st) return;
