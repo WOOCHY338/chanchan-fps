@@ -4569,7 +4569,7 @@ const AK_SKINS = {
   pink: { name: '핑크 페인트', rarity: 'common', paint: 0xf08cb4, odds: 28.34 },
   greengreen: { name: '그린그린', rarity: 'rare', paint: 0x3dbb5a, wood: 0x2f7d3f, mag: 0x6fe08a, odds: 12 },
   redgem: { name: '레드젬', rarity: 'epic', gem: ['#ff2a2a', '#ff7a2a', '#ffd23a', '#a3121b', '#ff5c8a'], odds: 2.7 },
-  bluegem: { name: '블루젬', rarity: 'legend', gem: ['#1f5fff', '#2bb6ff', '#6a3cff', '#ffd447', '#0f2f9a'], odds: 0.3 },
+  bluegem: { name: '블루젬 #661', rarity: 'legend', gem: ['#1f5fff', '#2bb6ff', '#6a3cff', '#ffd447', '#0f2f9a'], odds: 0.3 },
   custom: { name: '나만의 스킨', rarity: 'custom', custom: true },
 };
 const CASE_PRICE = 30;
@@ -4581,8 +4581,9 @@ const CASE_PRICE = 30;
 // shifts with height on the gun (the real blue gems are flooded blue on top and go gold / steel lower down)
 const GEM_LOOKS = {
   // AK-47 Case Hardened #661: bright glossy steel flooded with sky-to-royal blue, soft clouds of pale gold lower down
-  bluegem: { seed: 661, bias: 0.42, ramp: [[0, '#1c4ccc'], [0.22, '#2b6fe8'], [0.42, '#4a9bff'], [0.55, '#78b6ee'], [0.63, '#a6c6d6'],
-    [0.71, '#d9c37e'], [0.84, '#ead08c'], [1, '#c9a65a']] },
+  // seed #661 (the priciest one): the whole top and most of the play side are blue, gold only in a few low spots
+  bluegem: { seed: 661, bias: 0.3, ramp: [[0, '#1a46c4'], [0.25, '#2668e2'], [0.48, '#3f8cf8'], [0.66, '#5aa6ff'], [0.76, '#8fbfe6'],
+    [0.84, '#b9c8cc'], [0.9, '#dcc47e'], [1, '#e8cf8a']] },
   // the red one (Heat Treated style): crimson to orange-red with the same pale gold clouds
   redgem: { seed: 387, bias: 0.42, ramp: [[0, '#8c1016'], [0.22, '#c81f1f'], [0.42, '#ec4a2c'], [0.55, '#f2834e'], [0.63, '#d9b394'],
     [0.71, '#e2bb55'], [0.84, '#f0d084'], [1, '#c9a65a']] },
