@@ -442,7 +442,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
     <section class="menu-page" id="page-play">
       <div class="page-title">플레이</div>
       <div id="ranked-box">
-        <div class="rk-head"><b>경쟁전</b><span class="sub">폭탄전 · 내 티어 위아래 한 단계까지 매칭 · 승리 약 +30점, 100점마다 승급</span></div>
+        <div class="rk-head"><b>경쟁전</b><span class="sub">폭탄전 · 모든 티어가 같이 매칭 · 승리 약 +30점, 100점마다 승급</span></div>
         <div id="rk-me"></div>
         <div class="rk-bar"><i id="rk-bar"></i></div>
         <div class="row left" id="rk-sizes">
@@ -4404,8 +4404,8 @@ $('rk-logout').onclick = async () => {
   else { acctEl.classList.remove('hidden'); await loadLeaderboard(); }
 })();
 
-// ── matchmaking: join an open ranked room whose host is within one division of you, else open one ──
-// Looks like a queue: underneath it joins an open ranked P2P room whose host is within one division
+// ── matchmaking: join any open ranked room of the same size (every tier plays together), else open one ──
+// Looks like a queue: underneath it joins an open ranked P2P room of any division
 // (same size), else hosts one and lists it. Two lone hosts that find each other merge (lower code wins).
 // When the room is full it starts by itself; the lobby is never shown.
 const queue = { on: false, start: 0, tick: null, retry: null };
@@ -4423,7 +4423,6 @@ async function syncClock() {
 }
 function rankedQuery(size, d) {
   return sb.from('ranked_rooms').select('*').eq('status', 'open').eq('size', size)
-    .gte('host_division', d - 1).lte('host_division', d + 1)
     .gte('updated_at', boardTime(30000));
 }
 function startQueueScreen() {
@@ -4431,7 +4430,7 @@ function startQueueScreen() {
   queue.start = performance.now();
   const size = account.size;
   $('q-mode').textContent = `경쟁전 ${size}대${size}`;
-  $('q-sub').textContent = `${divName(account.profile.division)} · 위아래 한 단계까지 매칭`;
+  $('q-sub').textContent = `${divName(account.profile.division)} · 모든 티어 매칭`;
   $('queue').classList.remove('found');
   showOnly($('queue'));
   clearInterval(queue.tick);
