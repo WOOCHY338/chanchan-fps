@@ -237,3 +237,19 @@ begin
   insert into public.custom_skins (user_id, gun, design, updated_at) values (p.id, save_custom_skin.gun, save_custom_skin.design, now())
     on conflict (user_id, gun) do update set design = excluded.design, updated_at = now();
 end $$;
+
+-- ── 주인 계정 전용 찬크레딧 지급 (게임 상점 화면에서) ──
+-- 계정 id로 고정: 닉네임을 따라 해도 못 씀. 다른 사람이 부르면 서버에서 거절.
+create or replace function public.owner_give_credits(nick text, amount int) returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  r public.profiles;
+begin
+  if auth.uid() is distinct from 'b6cb9762-1599-48c7-a940-a074c5e0bf89'::uuid then raise exception '권한이 없어요'; end if;
+  if amount is null or amount < 1 or amount > 1000000 then raise exception '1 ~ 1,000,000 사이로 넣어 주세요'; end if;
+  update public.profiles set credits = credits + amount where nickname = nick returning * into r;
+  if r.id is null then raise exception '그 아이디의 계정이 없어요'; end if;
+  return json_build_object('nickname', r.nickname, 'credits', r.credits);
+end $$;
+revoke execute on function public.owner_give_credits(text, int) from public, anon;
+grant execute on function public.owner_give_credits(text, int) to authenticated;

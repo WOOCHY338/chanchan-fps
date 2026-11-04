@@ -34,6 +34,7 @@
 
 ## Supabase 서버 함수 (supabase_shop.sql)
 - 크레딧·뽑기·랭크 변경은 전부 security definer RPC에서만: `report_result`, `shop_status`, `claim_reward('playtime'|'ranked3'|'win1')`, `open_case`, `equip_skin`, `buy_item('karambit'|'custom')`. 나만의 스킨 디자인: `save_custom_skin` + 테이블 `custom_skins`(PK user_id+gun, design jsonb ≤ 1MB).
+- `owner_give_credits(nick, amount)`: 주인 계정(square15678, id `b6cb9762-1599-48c7-a940-a074c5e0bf89`)만 호출 가능. 상점 화면 위 "관리자 · 찬크레딧 넣기" 칸(`renderOwnerTools`).
 - `_my_profile`(내부용, 한국 자정에 일일 카운터 초기화), `admin_give_credits`(SQL Editor 전용).
 - 슈퍼 계정: `profiles.super = true` → 모든 스킨/칼/나만의 스킨 보유 취급. `square15678`(사용자 본인 계정)이 슈퍼, 999,999 크레딧.
 - SQL을 바꾸면 supabase_shop.sql 끝에 추가 + 대시보드 SQL Editor에서 실행 (Monaco: `monaco.editor.getModels()[0].setValue(sql)` 후 Run 버튼).
