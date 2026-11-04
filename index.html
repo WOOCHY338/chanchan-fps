@@ -1502,9 +1502,10 @@ const ADS = { zoom: 1.3, time: 0.18, vmFov: 50, spreadMul: 0.35, recoilMul: 0.8,
 const ads = { held: false, t: 0 };
 const adsEase = () => ads.t * ads.t * (3 - 2 * ads.t);
 function updateAds(dt) {
-  // zoom = right mouse, hold E, or the 줌 button on mobile; E goes to the bomb where you can plant / defuse
+  // zoom = right mouse, hold E (PC only), or the 줌 button on mobile; E goes to the bomb where you can plant / defuse,
+  // and on mobile E is only the bomb
   const eBomb = net.mode === 'online' && net.type === 'bomb' && typeof bombAction === 'function' && bombAction();
-  ads.held = playerCanAct() && !!(ads.mouse || ads.touch || (keys['KeyE'] && !eBomb));
+  ads.held = playerCanAct() && !!(ads.mouse || ads.touch || (keys['KeyE'] && !eBomb && !touchUI.on));
   const rifleIdle = loadout.current === 'rifle' && loadout.phase === 'idle';
   const want = rifleIdle && ads.held && weapon.reloading <= 0 && !player.isDodging ? 1 : 0;
   const step = dt / ADS.time;
@@ -6391,7 +6392,7 @@ const SAVED_SETTINGS = ['sens-slider', 'dist-slider', 'fov-slider', 'invert-y', 
 const touchUI = { on: false, stick: null, look: null, edit: false, sel: null };
 // every action a button can do: game keys are sent as real key events, so they work exactly like the keyboard
 const TOUCH_ACTIONS = {
-  fire: '발사', zoom: '줌', Space: '점프', KeyC: '앉기', KeyR: '장전', weapon: '무기 바꾸기', KeyE: 'E (폭탄·줌)',
+  fire: '발사', zoom: '줌', Space: '점프', KeyC: '앉기', KeyR: '장전', weapon: '무기 바꾸기', KeyE: 'E 폭탄',
   Escape: '⚙ 설정', Digit1: '1 주무기', Digit3: '3 칼', KeyB: 'B 총 선택', KeyY: 'Y 칼 보기', Tab: 'Tab 점수',
   KeyV: 'V 팀 보이스', KeyU: 'U 전체 보이스', KeyT: 'T 채팅', KeyW: 'W 앞', KeyA: 'A 왼쪽', KeyS: 'S 뒤', KeyD: 'D 오른쪽',
 };
