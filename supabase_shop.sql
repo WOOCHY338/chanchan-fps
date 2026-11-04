@@ -253,3 +253,4 @@ begin
 end $$;
 revoke execute on function public.owner_give_credits(text, int) from public, anon;
 grant execute on function public.owner_give_credits(text, int) to authenticated;
+notify pgrst, 'reload schema';
