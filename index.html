@@ -3402,7 +3402,7 @@ function update(dt) {
 // ── ONLINE MATCH (up to 5v5, first to 5) ── server.js owns rounds, HP and deaths; this client sends its
 // own movement/shots, reports hits on others, and draws everyone else from 20 Hz snapshots.
 const net = {
-  peer: null, conn: null, hostRoom: null, send: null,   // P2P transport (see hostRoom / joinRoom)
+  peer: null, conn: null, hostRoom: null, send: null, relay: null,   // P2P transport + Supabase relay (see hostRoom / joinRoom)
   id: null, mode: 'menu',                    // 'menu' | 'practice' | 'lobby' | 'online'
   room: null, host: null, players: [],       // lobby info
   phase: 'lobby', round: 0, score: { blue: 0, red: 0 }, timer: 0, myTeam: 'blue',
@@ -3687,21 +3687,135 @@ const pubCode = i => 'PB' + String(i).padStart(2, '0');
 // the free PeerJS signaling server drops out now and then: these errors are worth a quiet retry
 const PEER_NET_ERRORS = ['network', 'server-error', 'socket-error', 'socket-closed'];
 const PEER_RETRIES = 3;
+// ── Supabase relay: the fallback when two PCs can't connect directly ──
+// School / PC-bang Wi-Fi often blocks direct WebRTC between PCs, and the free TURN relays are unreachable, so
+// then the game talks over a Supabase Realtime channel (plain HTTPS/WebSocket) instead: one channel per room,
+// `cc-room-CODE`. Each payload names its receiver ({to, from, b: [messages]}), batched every 50 ms.
+const RELAY_FLUSH = 50, RELAY_TIMEOUT = 15000, RELAY_AFTER = 4000;
+function relayLink(code, me, onBatch) {
+  const ch = sb.channel('cc-room-' + code, { config: { broadcast: { self: false } } });
+  const out = new Map();
+  let timer = null, closed = false;
+  const flush = () => {
+    clearTimeout(timer); timer = null;
+    for (const [to, b] of out) ch.send({ type: 'broadcast', event: 'm', payload: { to, from: me, b } });
+    out.clear();
+  };
+  ch.on('broadcast', { event: 'm' }, ({ payload: p }) => { if (!closed && p && p.to === me && Array.isArray(p.b)) onBatch(p.from, p.b); });
+  const ready = new Promise(res => ch.subscribe(st => {
+    if (st === 'SUBSCRIBED') res(true);
+    else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') res(false);
+  }));
+  return {
+    ready,
+    send(to, msg) {
+      if (closed) return;
+      if (!out.has(to)) out.set(to, []);
+      out.get(to).push(msg);
+      if (!timer) timer = setTimeout(flush, RELAY_FLUSH);
+    },
+    close() { if (closed) return; flush(); closed = true; setTimeout(() => sb.removeChannel(ch), 300); },
+  };
+}
+// host side: every relay guest becomes a normal room player; a guest that goes quiet for 15 s has left
+function hostRelay(room, code, pub) {
+  if (!sb) return null;
+  const guests = new Map();   // relay id → { id, seen }
+  const link = relayLink(code, 'host', (from, batch) => {
+    let g = guests.get(from);
+    for (const m of batch) {
+      if (!m) continue;
+      if (m.t === 'bye') { if (g) { room.leave(g.id); guests.delete(from); } return; }
+      if (!g) {
+        if (m.t !== 'hello') continue;
+        g = { id: room.addPlayer(msg => link.send(from, msg), m.pid || null), seen: 0 };
+        guests.set(from, g);
+      }
+      g.seen = Date.now();
+      if (m.t !== 'hello' && m.t !== 'ping') room.handle(g.id, m);
+    }
+  });
+  // 공방 answer room-list questions on the lobby channel, so the list works without reaching each host directly
+  if (pub) lobbyChannel();
+  const beat = setInterval(() => {
+    for (const [from, g] of guests) {
+      if (Date.now() - g.seen > RELAY_TIMEOUT) { room.leave(g.id); guests.delete(from); } else link.send(from, { t: 'ping' });
+    }
+  }, 3000);
+  return {
+    pubRoom: pub ? room : null,
+    close() {
+      clearInterval(beat);
+      for (const from of guests.keys()) link.send(from, { t: 'bye' });
+      link.close();
+    },
+  };
+}
+// guest side: join through the relay; the host answers the join, or the room isn't there
+function joinRelay(code, pid) {
+  const me = 'g' + Math.random().toString(36).slice(2, 10);
+  let seen = Date.now(), answered = false, beat = null;
+  const r = {};
+  const lost = () => {
+    if (net.relay !== r) return;
+    closeTransport();
+    if (net.ranked && queue.on) { requeue(); return; }
+    if (net.mode === 'lobby' || net.mode === 'online') { leaveOnline(); $('menu-error').textContent = '방장이 나갔거나 연결이 끊겼어요'; }
+  };
+  const link = relayLink(code, me, (from, batch) => {
+    if (from !== 'host' || net.relay !== r) return;
+    seen = Date.now();
+    if (!answered) { answered = true; $('menu-error').textContent = ''; }
+    for (const m of batch) {
+      if (!m || m.t === 'ping') continue;
+      if (m.t === 'bye') return lost();
+      try { onNetMessage(m); } catch (e) { console.error(e); }
+    }
+  });
+  r.close = () => { clearInterval(beat); link.send('host', { t: 'bye' }); link.close(); };
+  net.relay = r;
+  $('menu-error').textContent = '방장에게 연결 중… (서버 경유)';
+  link.ready.then(ok => {
+    if (net.relay !== r) return;
+    if (!ok) { closeTransport(); return netError('연결 실패 (중계 서버에 접속할 수 없어요)'); }
+    net.send = msg => link.send('host', msg);
+    link.send('host', { t: 'hello', pid });
+    net.send({ t: 'join', name: playerName(), room: code });
+    seen = Date.now();
+    beat = setInterval(() => {
+      if (net.relay !== r) return clearInterval(beat);
+      if (!answered && Date.now() - seen > 8000) { closeTransport(); return netError('방을 찾을 수 없어요 (코드 확인)'); }
+      if (answered && Date.now() - seen > RELAY_TIMEOUT) return lost();
+      link.send('host', { t: 'ping' });
+    }, 2000);
+  });
+}
+
+// the host claims the room code on PeerJS (direct P2P) and listens on the relay too.
+// If PeerJS itself can't be reached, a code room still opens on the relay alone.
+function startHosting(code, mode, type, pub, peer) {
+  const room = createHostRoom(code, mode, type);
+  net.hostRoom = room;
+  // the host plays through a local loopback (async, like a real connection)
+  const myId = room.addPlayer(msg => queueMicrotask(() => onNetMessage(msg)), peer ? peer.id : null);
+  net.send = msg => room.handle(myId, msg);
+  net.relay = hostRelay(room, code, pub);
+  $('menu-error').textContent = '';
+  net.send({ t: 'create', name: playerName(), mode });
+  return room;
+}
 function hostRoom(mode, type, attempt = 0, pub = false, tries = 0) {
-  if (typeof Peer === 'undefined') return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
+  if (typeof Peer === 'undefined') {
+    if (sb && !pub) return startHosting(makeRoomCode(), mode, type, false, null);
+    return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
+  }
   const code = pub ? pubCode(attempt + 1) : makeRoomCode();
   const peer = new Peer(PEER_PREFIX + code, { debug: 0 });
   net.peer = peer;
   $('menu-error').textContent = '방 여는 중…';
   peer.on('call', onVoiceCall);
   peer.on('open', () => {
-    const room = createHostRoom(code, mode, type);
-    net.hostRoom = room;
-    // the host plays through a local loopback (async, like a real connection)
-    const myId = room.addPlayer(msg => queueMicrotask(() => onNetMessage(msg)), peer.id);
-    net.send = msg => room.handle(myId, msg);
-    $('menu-error').textContent = '';
-    net.send({ t: 'create', name: playerName(), mode });
+    const room = startHosting(code, mode, type, pub, peer);
     peer.on('connection', conn => {
       // someone's menu checking what this room is: answer and hang up, they don't join
       if (conn.metadata && conn.metadata.probe) {
@@ -3717,55 +3831,66 @@ function hostRoom(mode, type, attempt = 0, pub = false, tries = 0) {
     });
   });
   peer.on('error', err => {
+    if (net.hostRoom) return;   // already open (a late error from a guest's connection)
     // code taken: pick another (공방: the next free slot)
     if (err.type === 'unavailable-id' && attempt < (pub ? PUB_SLOTS - 1 : 5)) { peer.destroy(); return hostRoom(mode, type, attempt + 1, pub); }
-    if (PEER_NET_ERRORS.includes(err.type) && tries < PEER_RETRIES && net.peer === peer && !net.hostRoom) {
+    if (PEER_NET_ERRORS.includes(err.type) && net.peer === peer) {
       peer.destroy();
-      $('menu-error').textContent = '서버 연결 재시도 중… (' + (tries + 1) + '/' + PEER_RETRIES + ')';
-      return setTimeout(() => { if (net.peer === peer) hostRoom(mode, type, attempt, pub, tries + 1); }, 1500);
+      if (tries < PEER_RETRIES) {
+        $('menu-error').textContent = '서버 연결 재시도 중… (' + (tries + 1) + '/' + PEER_RETRIES + ')';
+        return setTimeout(() => { if (net.peer === peer) hostRoom(mode, type, attempt, pub, tries + 1); }, 1500);
+      }
+      if (sb && !pub) { net.peer = null; return startHosting(code, mode, type, false, null); }   // relay-only room
     }
     netError(pub && err.type === 'unavailable-id' ? '일반방 자리가 다 찼어요 (일반방 체크를 끄고 코드 방으로 만들어 주세요)' : '방을 열 수 없어요 (' + err.type + ')');
   });
   peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });   // keep the code reachable for late joiners
 }
-function joinRoom(code, tries = 0) {
-  if (typeof Peer === 'undefined') return netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
+function joinRoom(code) {
+  // no PeerJS at all: straight to the relay
+  if (typeof Peer === 'undefined') return sb ? joinRelay(code, null) : netError('연결 라이브러리를 불러오지 못했어요 (인터넷 확인)');
   const peer = new Peer({ debug: 0 });
   net.peer = peer;
   $('menu-error').textContent = '방장에게 연결 중…';
   peer.on('call', onVoiceCall);
-  const giveUp = setTimeout(() => {
-    if (net.mode === 'menu') { netError('방장 컴퓨터에 연결할 수 없어요 (네트워크가 P2P를 막고 있을 수 있어요)'); peer.destroy(); }
-  }, 12000);
+  // direct P2P didn't open in time (blocked network): drop it and go through the relay
+  let slow = null;
+  const toRelay = () => {
+    clearTimeout(slow);
+    if (net.peer !== peer || net.send || net.relay) return;
+    if (net.conn) { const c = net.conn; net.conn = null; c.close(); }
+    if (!sb) return netError('방장 컴퓨터에 연결할 수 없어요 (네트워크가 P2P를 막고 있을 수 있어요)');
+    joinRelay(code, peer.open ? peer.id : null);
+  };
+  slow = setTimeout(toRelay, RELAY_AFTER);
   peer.on('open', () => {
+    if (net.peer !== peer || net.relay) return;
     const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
     net.conn = conn;
     conn.on('open', () => {
-      clearTimeout(giveUp);
+      if (net.conn !== conn) return conn.close();
+      clearTimeout(slow);
       $('menu-error').textContent = '';
       net.send = msg => { if (conn.open) conn.send(msg); };
       net.send({ t: 'join', name: playerName(), room: code });
     });
-    conn.on('data', m => { try { onNetMessage(m); } catch (e) { console.error(e); } });
+    conn.on('data', m => { if (net.conn !== conn) return; try { onNetMessage(m); } catch (e) { console.error(e); } });
     conn.on('close', () => {
       if (net.conn !== conn) return;
       if (net.ranked && queue.on && net.mode === 'lobby') { requeue(); return; }   // host gave up before the match started
       if (net.mode === 'lobby' || net.mode === 'online') { leaveOnline(); $('menu-error').textContent = '방장이 나갔거나 연결이 끊겼어요'; }
     });
   });
-  peer.on('error', err => {
-    clearTimeout(giveUp);
-    if (PEER_NET_ERRORS.includes(err.type) && tries < PEER_RETRIES && net.peer === peer && !net.send) {
-      peer.destroy();
-      $('menu-error').textContent = '서버 연결 재시도 중… (' + (tries + 1) + '/' + PEER_RETRIES + ')';
-      return setTimeout(() => { if (net.peer === peer) joinRoom(code, tries + 1); }, 1500);
-    }
-    netError(err.type === 'peer-unavailable' ? '방을 찾을 수 없어요 (코드 확인)' : '연결 실패 (' + err.type + ')');
+  peer.on('error', () => {
+    if (net.peer !== peer || net.send || net.relay) return;
+    toRelay();   // PeerJS down, or the host isn't on PeerJS: the relay finds out whether the room exists
   });
 }
 function closeTransport() {
   voiceReset();
   if (net.hostRoom) { net.hostRoom.stop(); net.hostRoom = null; }
+  const relay = net.relay; net.relay = null;
+  if (relay) relay.close();
   const conn = net.conn; net.conn = null;
   if (conn) conn.close();
   if (net.peer) { net.peer.destroy(); net.peer = null; }
@@ -3952,9 +4077,45 @@ const create = type => {
 
 // ask every 공방 slot who's there; empty slots report peer-unavailable (or time out)
 let scanning = null;
+// 공방 room list over the relay: the menu broadcasts 'ask' on `cc-lobby`, every 공방 host answers with its info.
+// One lobby channel per page, never removed (Supabase hands back the same channel for the same name).
+let lobbyCh = null, lobbyHeard = null;
+function lobbyChannel() {
+  if (lobbyCh || !sb) return lobbyCh;
+  lobbyCh = sb.channel('cc-lobby', { config: { broadcast: { self: false } } });
+  lobbyCh.on('broadcast', { event: 'ask' }, () => {
+    const room = net.relay && net.relay.pubRoom;
+    if (room && net.hostRoom === room) lobbyCh.send({ type: 'broadcast', event: 'room', payload: room.info() });
+  });
+  lobbyCh.on('broadcast', { event: 'room' }, ({ payload }) => { if (lobbyHeard && payload && payload.code) lobbyHeard.push(payload); });
+  lobbyCh.ready = new Promise(res => lobbyCh.subscribe(st => {
+    if (st === 'SUBSCRIBED') res(true);
+    else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') res(false);
+  }));
+  return lobbyCh;
+}
+async function scanLobby() {
+  const ch = lobbyChannel();
+  if (!ch || !(await ch.ready)) return [];
+  const heard = lobbyHeard = [];
+  ch.send({ type: 'broadcast', event: 'ask', payload: {} });
+  await new Promise(r => setTimeout(r, 2000));
+  if (lobbyHeard === heard) lobbyHeard = null;
+  const mine = net.relay && net.relay.pubRoom;
+  return mine && net.hostRoom === mine ? [...heard, mine.info()] : heard;
+}
 function scanPublicRooms() {
   if (scanning) return scanning;
-  scanning = new Promise(resolve => {
+  scanning = Promise.all([scanPeerSlots(), scanLobby()]).then(([direct, lobby]) => {
+    if (direct === null && !lobby.length) return sb ? [] : null;
+    const byCode = new Map();
+    for (const r of [...lobby, ...(direct || [])]) byCode.set(r.code, r);   // a direct answer is the freshest
+    return [...byCode.values()].sort((x, y) => x.code.localeCompare(y.code));
+  }).finally(() => { scanning = null; });
+  return scanning;
+}
+function scanPeerSlots() {
+  return new Promise(resolve => {
     if (typeof Peer === 'undefined') return resolve(null);
     const peer = new Peer({ debug: 0 });
     const found = [], settle = {};
@@ -3977,8 +4138,7 @@ function scanPublicRooms() {
       else if (err.type !== 'peer-unavailable') finish();
     });
     setTimeout(finish, 7000);
-  }).finally(() => { scanning = null; });
-  return scanning;
+  });
 }
 const joinable = r => r.phase === 'lobby' && r.players < r.max;
 function renderRoomList(rooms) {

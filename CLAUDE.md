@@ -22,7 +22,7 @@
 - 총: `GUNS`(rifle=A-K, shotgun=더블배럴, sniper=저격총), A-K 모델 `const gun`, 저격총 `srGun`, 산탄총 `sg`. B키 = 주무기 선택.
 - 칼: `sampleKnife`, `knifeState`, 카람빗 찌르기(발로란트 챔스 2021 참고), `KNIFE_SKINS`.
 - 맵: `MAPS` (arena / bomb), `BOMB_SCALE = 1.4`, `BOMB_SITES`, `BOMB_SPAWNS`, 미니맵 `drawMinimap`.
-- 네트워크: `createHostRoom`, `netSend`, 메시지 create/join/team/mode/start/state/shot/anim/hit/chat/talk. 일반방 코드 PB01–PB12.
+- 네트워크: `createHostRoom`, `netSend`, 직접 P2P가 4초 안에 안 열리면 Supabase Realtime 중계(`relayLink`/`hostRelay`/`joinRelay`, 채널 `cc-room-코드`)로 자동 전환. 일반방 목록은 P2P 확인 + `cc-lobby` 브로드캐스트(`scanLobby`; Presence는 이 프로젝트에서 응답 없음). PeerJS 무료 TURN은 죽어 있음. 메시지 create/join/team/mode/start/state/shot/anim/hit/chat/talk. 일반방 코드 PB01–PB12.
 - 보이스: PeerJS 미디어 풀메시, V 팀 / U 전체.
 - 경쟁전: `rankedMatch`, `startQueueScreen`, `ranked_rooms` 테이블, 티어 `divName` (스톤1 → 챌린저2, 챔피언 = 상위 5명).
 - 상점: `AK_SKINS`, `RARITY`, `GEM_LOOKS`/`gemTexture`(케이스 하드닝 텍스처), `applyAkSkin`, `openCase`, `buyItem`, `ITEM_PRICE`, `refreshShop`.
@@ -44,6 +44,7 @@
 - Windows 경로가 길어서 git은 `git -c core.longpaths=true ...`.
 
 ## 작업 기록 (최신이 위)
+- 2026-11-04: 학교 와이파이처럼 PC끼리 직접 연결이 막힌 곳에서도 방 목록·참가·경쟁전이 되도록 Supabase 중계 추가. 경쟁전 시간은 Supabase 서버 시계 기준(`boardTime`). 화면 비율(기본/4:3 스트레치/4:3 블랙바).
 - 2026-11-03: 나만의 스킨 = 총 표면에 붙는 스티커(카스2식). 편집기에서 총을 돌려가며(빈 곳 드래그, 게임 시점/왼쪽/오른쪽/위 버튼, 휠 확대) 원하는 면에 붙임. 저장 슬롯 2개(계정 저장, design.slots). 서버 크기 제한 4MB.
 - 2026-11-03: 스티커를 게임 카메라 시점에서 투영(원근 정확: 정점마다 clip 좌표 `decalH` 속성 + `stickerMat` 셰이더에서 나눗셈). 편집 미리보기 = 게임 화면에 보이는 부분 그대로(같은 카메라, `setViewOffset`로 자름), 팔은 흐리게 표시. 플레이어 반대쪽 면/화면 밖은 단색.
 - 2026-11-03: 나만의 스킨을 카스2/카트 스티커 방식으로: 사진 스티커 여러 장(최대 8), 미리보기에서 드래그 이동·■ 크기·● 회전·휠. 왼쪽 면(게임에서 보이는 쪽)도 글자가 바로 읽히게 거울 처리. 미리보기는 전용 렌더러 + 정사영 카메라라 화면 좌표 = 총 옆면 좌표.
@@ -57,5 +58,5 @@
 
 ## 아직 안 한 것 / 아이디어
 - 다른 플레이어에게 내 A-K 스킨이 안 보임 (스킨은 내 화면에서만). 나만의 스킨은 의도적으로 본인만.
-- PeerJS가 막힌 네트워크에서는 매칭이 안 될 수 있음 → Supabase Realtime으로 시그널링 옮기는 방안.
+- 중계로 들어온 사람과는 보이스가 안 될 수 있음 (보이스는 아직 P2P 전용).
 - 산탄총·A-K의 다리 데미지 따로 없음.
