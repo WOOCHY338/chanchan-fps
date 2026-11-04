@@ -6385,61 +6385,110 @@ const SAVED_SETTINGS = ['sens-slider', 'dist-slider', 'fov-slider', 'invert-y', 
   $('settings-panel').addEventListener('change', save);
 })();
 
-// ── 모바일: asked on every start (PC or 모바일). Mobile = left stick to move, drag the right half to look,
-// buttons for fire / zoom / jump / crouch / reload / weapon / E. No pointer lock on phones, so "locked" = playing.
-const touchUI = { on: false, stick: null, look: null };
+// ── 모바일: asked on every start (PC or 모바일). Mobile = left stick to move, drag the right half to look, and
+// buttons the player can place, resize, add and remove (버튼 편집 in 설정), saved on this device.
+// No pointer lock on touch screens, so "locked" = playing.
+const touchUI = { on: false, stick: null, look: null, edit: false, sel: null };
+// every action a button can do: game keys are sent as real key events, so they work exactly like the keyboard
+const TOUCH_ACTIONS = {
+  fire: '발사', zoom: '줌', Space: '점프', KeyC: '앉기', KeyR: '장전', weapon: '무기 바꾸기', KeyE: 'E (폭탄·줌)',
+  Escape: '⚙ 설정', Digit1: '1 주무기', Digit3: '3 칼', KeyB: 'B 총 선택', KeyY: 'Y 칼 보기', Tab: 'Tab 점수',
+  KeyV: 'V 팀 보이스', KeyU: 'U 전체 보이스', KeyT: 'T 채팅', KeyW: 'W 앞', KeyA: 'A 왼쪽', KeyS: 'S 뒤', KeyD: 'D 오른쪽',
+};
+const TOUCH_DEFAULT = [   // x, y = centre in % of the screen, s = size in px
+  { k: 'fire', x: 92, y: 66, s: 84 }, { k: 'zoom', x: 82, y: 86, s: 64 }, { k: 'Space', x: 93, y: 88, s: 64 },
+  { k: 'KeyC', x: 72, y: 88, s: 60 }, { k: 'KeyR', x: 82, y: 68, s: 60 }, { k: 'weapon', x: 93, y: 46, s: 60 },
+  { k: 'KeyE', x: 82, y: 50, s: 56 }, { k: 'KeyB', x: 72, y: 70, s: 52 }, { k: 'Tab', x: 92, y: 8, s: 48 },
+  { k: 'KeyV', x: 82, y: 8, s: 48 }, { k: 'Escape', x: 4, y: 7, s: 48 },
+];
+let touchLayout = TOUCH_DEFAULT.map(b => ({ ...b }));
+try { const saved = JSON.parse(localStorage.getItem('touchLayout') || 'null'); if (Array.isArray(saved)) touchLayout = saved.filter(b => TOUCH_ACTIONS[b.k]); } catch (e) { /* storage blocked */ }
+const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.stringify(touchLayout)); } catch (e) { /* storage blocked */ } };
 (() => {
   const css = document.createElement('style');
   css.textContent = `#mode-ask{position:fixed;inset:0;z-index:100000;background:rgba(10,12,16,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#fff;font:700 20px 'Segoe UI',sans-serif}
-#mode-ask div{display:flex;gap:14px}#mode-ask button{font:700 20px 'Segoe UI',sans-serif;padding:16px 30px;border-radius:10px;border:2px solid #fff;background:#222;color:#fff}
-#touch-ui{position:fixed;inset:0;z-index:50;pointer-events:none;display:none}#touch-ui.on{display:block}
-#touch-ui .tb{position:absolute;pointer-events:auto;width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.55);color:#fff;font:700 14px sans-serif;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none}
-#touch-ui .tb.down{background:rgba(255,255,255,.45)}
+#mode-ask div{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}#mode-ask button{font:700 20px 'Segoe UI',sans-serif;padding:16px 30px;border-radius:10px;border:2px solid #fff;background:#222;color:#fff}
+#touch-ui{position:fixed;inset:0;z-index:50;pointer-events:none;display:none}#touch-ui.on{display:block}#touch-ui.edit{z-index:100001;background:rgba(0,0,0,.35)}
+#touch-ui .tb{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.55);color:#fff;font:700 13px sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.1;user-select:none;-webkit-user-select:none;touch-action:none}
+#touch-ui .tb.down{background:rgba(255,255,255,.45)}#touch-ui.edit .tb{border-style:dashed}#touch-ui .tb.sel{border-color:#ffd23a;box-shadow:0 0 0 3px #ffd23a}
 #t-stick{position:absolute;left:28px;bottom:28px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.4);pointer-events:auto;touch-action:none}
 #t-knob{position:absolute;left:40px;top:40px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.5)}
-#t-look{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}`;
+#t-look{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}#touch-ui.edit #t-look{display:none}
+#t-edit{display:none;position:absolute;left:50%;top:10px;transform:translateX(-50%);pointer-events:auto;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;background:#1b1e25;border:2px solid #555;border-radius:8px;padding:8px;color:#fff;font:600 14px sans-serif;max-width:92vw}
+#touch-ui.edit #t-edit{display:flex}#t-edit select,#t-edit button{font:600 14px sans-serif;padding:6px 10px;border-radius:6px;border:1px solid #666;background:#2a2e36;color:#fff}`;
   document.head.appendChild(css);
   const ui = document.createElement('div');
   ui.id = 'touch-ui';
-  ui.innerHTML = `<div id="t-look"></div><div id="t-stick"><div id="t-knob"></div></div>
-<div class="tb" data-k="fire" style="right:30px;bottom:110px;width:84px;height:84px">발사</div>
-<div class="tb" data-k="zoom" style="right:130px;bottom:40px">줌</div>
-<div class="tb" data-k="Space" style="right:30px;bottom:24px">점프</div>
-<div class="tb" data-k="KeyC" style="right:210px;bottom:24px">앉기</div>
-<div class="tb" data-k="KeyR" style="right:130px;bottom:120px">장전</div>
-<div class="tb" data-k="weapon" style="right:30px;bottom:210px">무기</div>
-<div class="tb" data-k="KeyE" style="right:120px;bottom:200px">E</div>
-<div class="tb" data-k="Escape" style="left:20px;top:20px;width:48px;height:48px">⚙</div>`;
+  ui.innerHTML = `<div id="t-look"></div><div id="t-stick"><div id="t-knob"></div></div><div id="t-btns"></div>
+<div id="t-edit"><span>버튼 끌어서 옮기기</span><select id="t-add"><option value="">+ 버튼 추가</option></select>
+<button id="t-big">크게</button><button id="t-small">작게</button><button id="t-del">삭제</button><button id="t-reset">초기화</button><button id="t-done">완료</button></div>`;
   document.body.appendChild(ui);
+  for (const [k, name] of Object.entries(TOUCH_ACTIONS)) { const o = document.createElement('option'); o.value = k; o.textContent = name; $('t-add').appendChild(o); }
+  // key events like a real keyboard (code + key), so every handler that listens to the keyboard sees them
+  const keyOf = code => code === 'Space' ? ' ' : code.startsWith('Key') ? code.slice(3).toLowerCase() : code.startsWith('Digit') ? code.slice(5) : code;
   const key = (code, down) => {
     keys[code] = down;
-    document.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key: code === 'Space' ? ' ' : code, bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key: keyOf(code), bubbles: true, cancelable: true }));
   };
-  for (const b of ui.querySelectorAll('.tb')) {
-    const k = b.dataset.k;
-    b.addEventListener('pointerdown', e => {
-      e.preventDefault(); b.classList.add('down'); SFX.unlock();
-      if (k === 'fire') firing = true;
-      else if (k === 'zoom') ads.touch = true;
-      else if (k === 'weapon') { const c = loadout.current === 'knife' ? 'Digit1' : 'Digit3'; key(c, true); key(c, false); }
-      else if (k === 'Escape') { isLocked = false; $('settings-panel').classList.toggle('visible'); }
-      else key(k, true);
+  const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ } };
+  const press = (k, down) => {
+    if (k === 'fire') firing = down;
+    else if (k === 'zoom') ads.touch = down;
+    else if (k === 'weapon') { if (down) { const c = loadout.current === 'knife' ? 'Digit1' : 'Digit3'; key(c, true); key(c, false); } }
+    else if (k === 'Escape') { if (down) { isLocked = false; $('settings-panel').classList.toggle('visible'); } }
+    else key(k, down);
+  };
+  const render = () => {
+    const box = $('t-btns');
+    box.innerHTML = '';
+    touchLayout.forEach((b, i) => {
+      const el = document.createElement('div');
+      el.className = 'tb' + (touchUI.edit && touchUI.sel === i ? ' sel' : '');
+      el.textContent = TOUCH_ACTIONS[b.k];
+      Object.assign(el.style, { left: b.x + '%', top: b.y + '%', width: b.s + 'px', height: b.s + 'px', fontSize: Math.max(10, b.s / 5) + 'px' });
+      let drag = null;
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation(); capture(el, e);
+        if (touchUI.edit) { touchUI.sel = i; drag = e.pointerId; render(); return; }
+        el.classList.add('down'); SFX.unlock(); press(b.k, true);
+      });
+      el.addEventListener('pointermove', e => {
+        if (!touchUI.edit || drag !== e.pointerId) return;
+        b.x = Math.min(98, Math.max(2, e.clientX / innerWidth * 100)); b.y = Math.min(98, Math.max(2, e.clientY / innerHeight * 100));
+        el.style.left = b.x + '%'; el.style.top = b.y + '%';
+      });
+      const up = e => {
+        if (touchUI.edit) { if (drag === e.pointerId) { drag = null; saveTouchLayout(); } return; }
+        if (!el.classList.contains('down')) return;
+        el.classList.remove('down'); press(b.k, false);
+      };
+      el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      box.appendChild(el);
     });
-    const up = () => {
-      b.classList.remove('down');
-      if (k === 'fire') firing = false;
-      else if (k === 'zoom') ads.touch = false;
-      else if (k !== 'weapon' && k !== 'Escape') key(k, false);
-    };
-    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up);
-  }
-  // movement stick → WASD
+  };
+  render();
+  // editor toolbar
+  $('t-add').onchange = e => { if (!e.target.value) return; touchLayout.push({ k: e.target.value, x: 50, y: 50, s: 60 }); touchUI.sel = touchLayout.length - 1; e.target.value = ''; saveTouchLayout(); render(); };
+  const resize = d => { const b = touchLayout[touchUI.sel]; if (!b) return; b.s = Math.min(130, Math.max(36, b.s + d)); saveTouchLayout(); render(); };
+  $('t-big').onclick = () => resize(10);
+  $('t-small').onclick = () => resize(-10);
+  $('t-del').onclick = () => { if (touchUI.sel == null) return; touchLayout.splice(touchUI.sel, 1); touchUI.sel = null; saveTouchLayout(); render(); };
+  $('t-reset').onclick = () => { touchLayout = TOUCH_DEFAULT.map(b => ({ ...b })); touchUI.sel = null; saveTouchLayout(); render(); };
+  $('t-done').onclick = () => { touchUI.edit = false; touchUI.sel = null; ui.classList.remove('edit'); render(); };
+  // 설정 → 버튼 편집 (mobile only)
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn ghost'; editBtn.style.cssText = 'margin-top:6px;width:100%;padding:7px;display:none';
+  editBtn.textContent = '📱 모바일 버튼 편집';
+  editBtn.onclick = () => { touchUI.edit = true; ui.classList.add('edit', 'on'); $('settings-panel').classList.remove('visible'); render(); };
+  $('btn-to-menu').before(editBtn);
+
+  // movement stick → WASD (preventDefault: no fake mouse clicks, which would fire the gun)
   const stick = $('t-stick'), knob = $('t-knob');
   const setMove = (x, y) => {
     keys.KeyW = y < -0.3; keys.KeyS = y > 0.3; keys.KeyA = x < -0.3; keys.KeyD = x > 0.3;
     knob.style.transform = `translate(${x * 40}px, ${y * 40}px)`;
   };
-  stick.addEventListener('pointerdown', e => { touchUI.stick = e.pointerId; stick.setPointerCapture(e.pointerId); });
+  stick.addEventListener('pointerdown', e => { e.preventDefault(); touchUI.stick = e.pointerId; capture(stick, e); });
   stick.addEventListener('pointermove', e => {
     if (e.pointerId !== touchUI.stick) return;
     const r = stick.getBoundingClientRect();
@@ -6451,7 +6500,7 @@ const touchUI = { on: false, stick: null, look: null };
   stick.addEventListener('pointerup', stickUp); stick.addEventListener('pointercancel', stickUp);
   // look: drag on the right half
   const look = $('t-look');
-  look.addEventListener('pointerdown', e => { touchUI.look = { id: e.pointerId, x: e.clientX, y: e.clientY }; look.setPointerCapture(e.pointerId); });
+  look.addEventListener('pointerdown', e => { e.preventDefault(); touchUI.look = { id: e.pointerId, x: e.clientX, y: e.clientY }; capture(look, e); });
   look.addEventListener('pointermove', e => {
     const L = touchUI.look;
     if (!L || L.id !== e.pointerId) return;
@@ -6460,6 +6509,10 @@ const touchUI = { on: false, stick: null, look: null };
   });
   const lookUp = e => { if (touchUI.look && touchUI.look.id === e.pointerId) touchUI.look = null; };
   look.addEventListener('pointerup', lookUp); look.addEventListener('pointercancel', lookUp);
+  // touch screens also send fake mouse clicks after a tap: never let those shoot in mobile mode
+  for (const ev of ['mousedown', 'mouseup', 'click']) document.addEventListener(ev, e => {
+    if (touchUI.on && e.target && e.target.closest && e.target.closest('#touch-ui')) e.stopImmediatePropagation();
+  }, true);
 
   // the question, every start
   const ask = document.createElement('div');
@@ -6468,14 +6521,17 @@ const touchUI = { on: false, stick: null, look: null };
   document.body.appendChild(ask);
   ask.querySelectorAll('button').forEach(b => b.onclick = () => {
     touchUI.on = b.dataset.m === 'mobile';
+    editBtn.style.display = touchUI.on ? 'block' : 'none';
     ask.remove();
     SFX.unlock();
     if (touchUI.on) { autoFullscreen = false; document.documentElement.requestFullscreen?.().catch(() => {}); }
   });
   // in a game the touch buttons show; there's no pointer lock, so playing counts as "locked"
   setInterval(() => {
+    if (touchUI.edit) return;
     const show = touchUI.on && inGame() && !$('settings-panel').classList.contains('visible');
     ui.classList.toggle('on', show);
+    $('t-look').style.display = gunSel.open ? 'none' : '';   // B 총 선택 open: let taps reach the gun buttons
     if (touchUI.on) { isLocked = show; if (show) startScreen.classList.add('hidden'); }
   }, 200);
 })();
