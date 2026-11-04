@@ -1488,11 +1488,11 @@ let firing = false;
 document.addEventListener('mousedown', e => {
   if (!isLocked) return;
   if (e.button === 0) firing = true;
-  if (e.button === 2) ads.held = true;
+  if (e.button === 2) ads.mouse = true;
 });
 document.addEventListener('mouseup', e => {
   if (e.button === 0) firing = false;
-  if (e.button === 2) ads.held = false;
+  if (e.button === 2) ads.mouse = false;
 });
 document.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -1502,6 +1502,9 @@ const ADS = { zoom: 1.3, time: 0.18, vmFov: 50, spreadMul: 0.35, recoilMul: 0.8,
 const ads = { held: false, t: 0 };
 const adsEase = () => ads.t * ads.t * (3 - 2 * ads.t);
 function updateAds(dt) {
+  // zoom = right mouse, hold E, or the 줌 button on mobile; E goes to the bomb where you can plant / defuse
+  const eBomb = net.mode === 'online' && net.type === 'bomb' && typeof bombAction === 'function' && bombAction();
+  ads.held = playerCanAct() && !!(ads.mouse || ads.touch || (keys['KeyE'] && !eBomb));
   const rifleIdle = loadout.current === 'rifle' && loadout.phase === 'idle';
   const want = rifleIdle && ads.held && weapon.reloading <= 0 && !player.isDodging ? 1 : 0;
   const step = dt / ADS.time;
@@ -6380,6 +6383,101 @@ const SAVED_SETTINGS = ['sens-slider', 'dist-slider', 'fov-slider', 'invert-y', 
   };
   $('settings-panel').addEventListener('input', save);
   $('settings-panel').addEventListener('change', save);
+})();
+
+// ── 모바일: asked on every start (PC or 모바일). Mobile = left stick to move, drag the right half to look,
+// buttons for fire / zoom / jump / crouch / reload / weapon / E. No pointer lock on phones, so "locked" = playing.
+const touchUI = { on: false, stick: null, look: null };
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `#mode-ask{position:fixed;inset:0;z-index:100000;background:rgba(10,12,16,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#fff;font:700 20px 'Segoe UI',sans-serif}
+#mode-ask div{display:flex;gap:14px}#mode-ask button{font:700 20px 'Segoe UI',sans-serif;padding:16px 30px;border-radius:10px;border:2px solid #fff;background:#222;color:#fff}
+#touch-ui{position:fixed;inset:0;z-index:50;pointer-events:none;display:none}#touch-ui.on{display:block}
+#touch-ui .tb{position:absolute;pointer-events:auto;width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.55);color:#fff;font:700 14px sans-serif;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none}
+#touch-ui .tb.down{background:rgba(255,255,255,.45)}
+#t-stick{position:absolute;left:28px;bottom:28px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.4);pointer-events:auto;touch-action:none}
+#t-knob{position:absolute;left:40px;top:40px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.5)}
+#t-look{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}`;
+  document.head.appendChild(css);
+  const ui = document.createElement('div');
+  ui.id = 'touch-ui';
+  ui.innerHTML = `<div id="t-look"></div><div id="t-stick"><div id="t-knob"></div></div>
+<div class="tb" data-k="fire" style="right:30px;bottom:110px;width:84px;height:84px">발사</div>
+<div class="tb" data-k="zoom" style="right:130px;bottom:40px">줌</div>
+<div class="tb" data-k="Space" style="right:30px;bottom:24px">점프</div>
+<div class="tb" data-k="KeyC" style="right:210px;bottom:24px">앉기</div>
+<div class="tb" data-k="KeyR" style="right:130px;bottom:120px">장전</div>
+<div class="tb" data-k="weapon" style="right:30px;bottom:210px">무기</div>
+<div class="tb" data-k="KeyE" style="right:120px;bottom:200px">E</div>
+<div class="tb" data-k="Escape" style="left:20px;top:20px;width:48px;height:48px">⚙</div>`;
+  document.body.appendChild(ui);
+  const key = (code, down) => {
+    keys[code] = down;
+    document.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key: code === 'Space' ? ' ' : code, bubbles: true }));
+  };
+  for (const b of ui.querySelectorAll('.tb')) {
+    const k = b.dataset.k;
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault(); b.classList.add('down'); SFX.unlock();
+      if (k === 'fire') firing = true;
+      else if (k === 'zoom') ads.touch = true;
+      else if (k === 'weapon') { const c = loadout.current === 'knife' ? 'Digit1' : 'Digit3'; key(c, true); key(c, false); }
+      else if (k === 'Escape') { isLocked = false; $('settings-panel').classList.toggle('visible'); }
+      else key(k, true);
+    });
+    const up = () => {
+      b.classList.remove('down');
+      if (k === 'fire') firing = false;
+      else if (k === 'zoom') ads.touch = false;
+      else if (k !== 'weapon' && k !== 'Escape') key(k, false);
+    };
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up);
+  }
+  // movement stick → WASD
+  const stick = $('t-stick'), knob = $('t-knob');
+  const setMove = (x, y) => {
+    keys.KeyW = y < -0.3; keys.KeyS = y > 0.3; keys.KeyA = x < -0.3; keys.KeyD = x > 0.3;
+    knob.style.transform = `translate(${x * 40}px, ${y * 40}px)`;
+  };
+  stick.addEventListener('pointerdown', e => { touchUI.stick = e.pointerId; stick.setPointerCapture(e.pointerId); });
+  stick.addEventListener('pointermove', e => {
+    if (e.pointerId !== touchUI.stick) return;
+    const r = stick.getBoundingClientRect();
+    let x = (e.clientX - r.left - r.width / 2) / (r.width / 2), y = (e.clientY - r.top - r.height / 2) / (r.height / 2);
+    const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
+    setMove(x, y);
+  });
+  const stickUp = e => { if (e.pointerId === touchUI.stick) { touchUI.stick = null; setMove(0, 0); } };
+  stick.addEventListener('pointerup', stickUp); stick.addEventListener('pointercancel', stickUp);
+  // look: drag on the right half
+  const look = $('t-look');
+  look.addEventListener('pointerdown', e => { touchUI.look = { id: e.pointerId, x: e.clientX, y: e.clientY }; look.setPointerCapture(e.pointerId); });
+  look.addEventListener('pointermove', e => {
+    const L = touchUI.look;
+    if (!L || L.id !== e.pointerId) return;
+    mouse.dx += (e.clientX - L.x) * 2.2; mouse.dy += (e.clientY - L.y) * 2.2;
+    L.x = e.clientX; L.y = e.clientY;
+  });
+  const lookUp = e => { if (touchUI.look && touchUI.look.id === e.pointerId) touchUI.look = null; };
+  look.addEventListener('pointerup', lookUp); look.addEventListener('pointercancel', lookUp);
+
+  // the question, every start
+  const ask = document.createElement('div');
+  ask.id = 'mode-ask';
+  ask.innerHTML = '<span>어떻게 플레이할까요?</span><div><button data-m="pc">🖥 PC (키보드·마우스)</button><button data-m="mobile">📱 모바일 (터치)</button></div>';
+  document.body.appendChild(ask);
+  ask.querySelectorAll('button').forEach(b => b.onclick = () => {
+    touchUI.on = b.dataset.m === 'mobile';
+    ask.remove();
+    SFX.unlock();
+    if (touchUI.on) { autoFullscreen = false; document.documentElement.requestFullscreen?.().catch(() => {}); }
+  });
+  // in a game the touch buttons show; there's no pointer lock, so playing counts as "locked"
+  setInterval(() => {
+    const show = touchUI.on && inGame() && !$('settings-panel').classList.contains('visible');
+    ui.classList.toggle('on', show);
+    if (touchUI.on) { isLocked = show; if (show) startScreen.classList.add('hidden'); }
+  }, 200);
 })();
 
 animate();
