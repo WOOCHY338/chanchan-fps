@@ -838,8 +838,23 @@ function playKnifeSound(name) {
 
 // ── THREE.JS SETUP ──
 // 안티앨리어싱 can only be chosen when the renderer is made, so it applies after a reload
+// anti-aliasing (MSAA) is the heaviest per-pixel cost on school PCs' Intel graphics at full screen:
+// off by default there, on elsewhere; once the player picks it in 설정, their choice wins
+function weakGpu() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    const name = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
+    const lose = gl && gl.getExtension('WEBGL_lose_context');
+    if (lose) lose.loseContext();
+    return /Intel|SwiftShader|llvmpipe|Mali|PowerVR/i.test(name);
+  } catch (e) { return false; }
+}
 let gfxAA = true;
-try { gfxAA = localStorage.getItem('gfxAA') !== '0'; } catch (e) { /* storage blocked */ }
+try {
+  const saved = localStorage.getItem('gfxAA');
+  gfxAA = saved === null ? !weakGpu() : saved !== '0';
+} catch (e) { /* storage blocked */ }
 const renderer = new THREE.WebGLRenderer({ antialias: gfxAA, powerPreference: 'high-performance' });
 // weak GPUs (school PCs) can drop the WebGL context: the screen goes black and the game stops.
 // three.js restores it when the browser allows; if that doesn't happen soon, reload instead of staying frozen.
