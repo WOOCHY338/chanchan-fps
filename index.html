@@ -150,9 +150,9 @@ canvas { display: block; width: 100vw; height: 100vh; }
 .case-info { display: flex; flex-direction: column; gap: 6px; }
 .case-info b { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 24px; font-weight: 400; }
 .case-info span { font-size: 13px; opacity: 0.8; }
-#case-odds { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; font-size: 12px; align-items: center; margin-left: auto; }
-#case-odds div { display: contents; }
-#case-odds i { width: 10px; height: 10px; border-radius: 2px; }
+#case-odds, #kcase-odds { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; font-size: 12px; align-items: center; margin-left: auto; }
+#case-odds div, #kcase-odds div { display: contents; }
+#case-odds i, #kcase-odds i { width: 10px; height: 10px; border-radius: 2px; }
 #shop-msg { color: #ffd447; font-weight: 700; min-height: 18px; font-size: 14px; }
 #quest-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 #quest-list .quest { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05);
@@ -559,6 +559,15 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
         </div>
         <div id="case-odds"></div>
       </div>
+      <div class="case-card">
+        <div class="case-art"></div>
+        <div class="case-info">
+          <b>노이펙트 카람빗 상자</b>
+          <span>카람빗 스킨 6종 중 하나 · 블루젬은 0.3%</span>
+          <button class="btn accent" id="btn-open-kcase">열기 · 50 찬크레딧</button>
+        </div>
+        <div id="kcase-odds"></div>
+      </div>
       <div id="shop-msg"></div>
       <div class="inv-label">오늘의 퀘스트 <small>하나에 20 찬크레딧 · 매일 자정(한국 시간) 초기화</small></div>
       <div id="quest-list"></div>
@@ -567,11 +576,6 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
         <div class="shop-item" data-skin="basic">
           <div class="shop-art basic"></div>
           <b>기본칼</b>
-          <button class="btn equip">보유 중</button>
-        </div>
-        <div class="shop-item" data-skin="karambit">
-          <div class="shop-art karambit"></div>
-          <b>카람빗</b>
           <button class="btn equip">보유 중</button>
         </div>
       </div>
@@ -2277,6 +2281,7 @@ knifeModel.add(karambitKnife);
   knifeModel.add(ring);
 }
 // 카람빗: held reverse-grip — finger ring above the fist (+y), claw blade curving out below it (-y)
+let kbBladeMesh = null, kbSpineMesh = null;   // painted by the 카람빗 skins (applyKbFinish)
 const KARAMBIT_RING = new THREE.Vector3(0, 0.078, 0);   // index-finger ring, the spin pivot
 {
   const k = karambitKnife;
@@ -2295,7 +2300,8 @@ const KARAMBIT_RING = new THREE.Vector3(0, 0.078, 0);   // index-finger ring, th
   s.lineTo(0.013, -0.058);
   const geo = new THREE.ExtrudeGeometry(s, { depth: 0.007, bevelEnabled: false });
   geo.translate(0, 0, -0.0035);
-  k.add(inked(geo, 0x9aa3ad));
+  kbBladeMesh = inked(geo, 0x9aa3ad);
+  k.add(kbBladeMesh);
   // darker spine line so the curve reads from a distance
   const spine = new THREE.Shape();
   spine.moveTo(0.013, -0.058);
@@ -2304,7 +2310,8 @@ const KARAMBIT_RING = new THREE.Vector3(0, 0.078, 0);   // index-finger ring, th
   spine.lineTo(0.013, -0.058);
   const sg = new THREE.ExtrudeGeometry(spine, { depth: 0.0085, bevelEnabled: false });
   sg.translate(0, 0, -0.00425);
-  k.add(new THREE.Mesh(sg, vmMat(0x5b626b)));
+  kbSpineMesh = new THREE.Mesh(sg, vmMat(0x5b626b));
+  k.add(kbSpineMesh);
 }
 
 const KNIFE_SKINS = {
@@ -4570,69 +4577,52 @@ const CASE_PRICE = 30;
 // Case Hardened (CS2 AK-47 #661 "blue gem" look): heat-tempered steel. The texture is one side view of the whole
 // gun (u = muzzle→stock, v = bottom→top), so the pattern flows across parts like the real finish: the top is
 // flooded with deep royal blue, it breaks into purple / cyan swirls lower down, and the bottom edge turns gold.
+// ramp: where the marbled noise value lands (0 = deepest temper colour → 1 = bare steel); bias: how much the colour
+// shifts with height on the gun (the real blue gems are flooded blue on top and go gold / steel lower down)
 const GEM_LOOKS = {
-  bluegem: { seed: 661, base: ['#1a3fd8', '#1b2d8c', '#4d5a78'], top: ['#1b3fe0', '#0d1f8a', '#2a5cff', '#0a1660', '#2f6bff', '#1530b8', '#3d7dff'],
-    mid: ['#5a2fd6', '#2e8bff', '#1d47e8', '#6a35e0', '#0d1f8a', '#3aa0ff'], low: ['#c8962e', '#e8b84a', '#8c6a2a', '#5f6a80'], spark: '#7fd0ff', line: '#081452' },
-  redgem: { seed: 387, base: ['#b5161c', '#7a1418', '#6a5a50'], top: ['#d41a1a', '#a3121b', '#ff3b2a', '#c4142e'],
-    mid: ['#ff6a2a', '#ff3b5c', '#e02a2a', '#ff8a3a', '#6e0a12'], low: ['#ffd23a', '#e8a63a', '#8c6a2a'], spark: '#ffd0a0', line: '#4a060c' },
+  bluegem: { seed: 661, bias: 0.55, ramp: [[0, '#081a8c'], [0.22, '#1739d6'], [0.38, '#2f63ff'], [0.5, '#4a3fc8'], [0.58, '#6b5aa8'],
+    [0.66, '#9a9aa6'], [0.74, '#c9a04a'], [0.84, '#e6c46a'], [0.93, '#b8b2a2'], [1, '#8d939c']] },
+  redgem: { seed: 387, bias: 0.55, ramp: [[0, '#5a0408'], [0.22, '#a3121b'], [0.38, '#e0261f'], [0.5, '#ff5a2a'], [0.6, '#c2564a'],
+    [0.68, '#a09890'], [0.76, '#e0a83a'], [0.86, '#ffd25a'], [0.94, '#b8b2a2'], [1, '#8d939c']] },
 };
 function gemTexture(look) {
+  // Case Hardened like CS2: heat-tempered steel with flowing, marbled pools (domain-warped noise), thin dark temper
+  // lines where the colours meet, and brushed steel grain on top
   const W = 1024, H = 384;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
-  let s = look.seed;
-  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-  const pick = a => a[Math.floor(rnd() * a.length)];
-  const base = g.createLinearGradient(0, 0, 0, H);   // canvas y=0 is the top of the gun
-  base.addColorStop(0, look.base[0]); base.addColorStop(0.55, look.base[1]); base.addColorStop(1, look.base[2]);
-  g.fillStyle = base;
-  g.fillRect(0, 0, W, H);
-  // soft tempering pools, stretched along the gun and smeared (watercolor-like)
-  g.filter = 'blur(5px)';
-  for (let i = 0; i < 220; i++) {
-    const y = rnd() * H, band = y / H;
-    const col = band < 0.45 ? pick(look.top) : band < 0.8 ? (rnd() < 0.7 ? pick(look.mid) : pick(look.top)) : (rnd() < 0.6 ? pick(look.low) : pick(look.mid));
-    g.globalAlpha = 0.35 + rnd() * 0.5;
-    g.fillStyle = col;
-    g.beginPath();
-    g.ellipse(rnd() * W, y, 30 + rnd() * 140, 8 + rnd() * 40, (rnd() - 0.5) * 0.7, 0, Math.PI * 2);
-    g.fill();
-  }
-  // crisper swirl edges: thin wavy temper lines
-  g.filter = 'blur(1.5px)';
-  for (let i = 0; i < 70; i++) {
-    const y0 = rnd() * H, band = y0 / H;
-    g.strokeStyle = band > 0.8 ? pick(look.low) : rnd() < 0.75 ? look.line : pick(look.mid);
-    g.globalAlpha = 0.2 + rnd() * 0.3;
-    g.lineWidth = 1 + rnd() * 4;
-    g.beginPath();
-    let x = rnd() * W, y = y0;
-    g.moveTo(x, y);
-    for (let k = 0; k < 6; k++) {
-      const nx = x + 30 + rnd() * 90, ny = y + (rnd() - 0.5) * 50;
-      g.quadraticCurveTo((x + nx) / 2, y + (rnd() - 0.5) * 70, nx, ny);
-      x = nx; y = ny;
+  const img = g.createImageData(W, H), px = img.data;
+  const S = look.seed;
+  const hash = (x, y) => { let h = (x * 374761393 + y * 668265263 + S * 2246822519) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const noise = (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    const a = hash(xi, yi), b = hash(xi + 1, yi), c2 = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+    return a + (b - a) * u + (c2 - a) * v + (a - b - c2 + d) * u * v;
+  };
+  const fbm = (x, y) => { let f = 0, amp = 0.5; for (let o = 0; o < 4; o++) { f += amp * noise(x, y); x *= 2.03; y *= 2.03; amp *= 0.5; } return f / 0.9375; };
+  const ramp = look.ramp.map(([t, hex]) => { const col = new THREE.Color(hex); return [t, col.r * 255, col.g * 255, col.b * 255]; });
+  for (let y = 0; y < H; y++) {
+    const band = y / H;   // 0 = top of the gun
+    for (let x = 0; x < W; x++) {
+      const u = x / W * 7, v = y / H * 2.6;
+      const qx = fbm(u, v), qy = fbm(u + 5.2, v + 1.3);
+      const n = fbm(u + 3.2 * qx, v + 3.2 * qy);
+      let t = Math.min(1, Math.max(0, (n - 0.5) * 1.9 + 0.5 - look.bias * 0.5 + band * look.bias));
+      let k = 1;
+      while (k < ramp.length - 1 && ramp[k][0] < t) k++;
+      const r0 = ramp[k - 1], r1 = ramp[k], f = (t - r0[0]) / Math.max(1e-6, r1[0] - r0[0]);
+      const line = Math.abs(((n * 9) % 1) - 0.5) < 0.035 ? 0.62 : 1;   // temper lines
+      const grain = 0.9 + 0.2 * noise(x * 0.04, y * 1.7);               // brushed along the gun
+      const i = (y * W + x) * 4;
+      px[i] = (r0[1] + (r1[1] - r0[1]) * f) * line * grain;
+      px[i + 1] = (r0[2] + (r1[2] - r0[2]) * f) * line * grain;
+      px[i + 2] = (r0[3] + (r1[3] - r0[3]) * f) * line * grain;
+      px[i + 3] = 255;
     }
-    g.stroke();
   }
-  // a few bright flecks and gold spots
-  g.filter = 'blur(3px)';
-  for (let i = 0; i < 18; i++) {
-    const y = H * (0.2 + rnd() * 0.8);
-    g.globalAlpha = 0.5 + rnd() * 0.4;
-    g.fillStyle = y / H > 0.75 ? pick(look.low) : look.spark;
-    g.beginPath();
-    g.ellipse(rnd() * W, y, 3 + rnd() * 14, 2 + rnd() * 6, rnd(), 0, Math.PI * 2);
-    g.fill();
-  }
-  g.filter = 'none';
-  // brushed steel grain along the gun
-  for (let i = 0; i < 2600; i++) {
-    g.globalAlpha = 0.05 + rnd() * 0.08;
-    g.fillStyle = rnd() < 0.5 ? '#ffffff' : '#000000';
-    g.fillRect(rnd() * W, rnd() * H, 8 + rnd() * 50, 1);
-  }
+  g.putImageData(img, 0, 0);
   g.globalAlpha = 1;
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -4923,7 +4913,8 @@ function customChanged(g) {
 
 const shop = { owned: {}, playTimer: null };
 const ITEM_PRICE = { karambit: 50, custom: 100 };
-const ownsKnife = id => id === 'basic' || !!(account.profile && (account.profile.super || shop.owned['knife_' + id]));
+const ownsKnife = id => id === 'basic' || !!(account.profile && (account.profile.super || shop.owned['knife_' + id]
+  || (id === 'karambit' && Object.keys(shop.owned).some(k => k.startsWith('k_')))));
 const ownsItem = id => id === 'custom' ? ownsCustom() : ownsKnife(id);
 async function buyItem(item) {
   if (!sb || !account.profile) return shopToast('로그인해야 살 수 있어요');
@@ -4973,6 +4964,7 @@ async function refreshShop() {
   await loadCustom();
   renderCredits(); renderQuests(); renderSkinInventory(); renderShop();
   checkKnifeOwnership();
+  applyKbFinish();
   schedulePlaytime();
 }
 // 하루 10분 접속: ask the server once the 10 minutes are up (it checks the time itself)
@@ -5024,18 +5016,18 @@ function renderQuests() {
 setInterval(() => { if (account.profile && !$('page-shop').classList.contains('hidden')) renderQuests(); }, 30000);
 
 // odds table under the case
-(() => {
-  const box = $('case-odds');
+for (const [boxId, pre] of [['case-odds', ''], ['kcase-odds', '카람빗 | ']]) {
+  const box = $(boxId);
   for (const id of ['bluegem', 'redgem', 'greengreen', 'orange', 'navy', 'pink']) {
     const sk = AK_SKINS[id], r = RARITY[sk.rarity];
     const row = document.createElement('div');
     row.innerHTML = '<i></i><span></span><b></b>';
     row.querySelector('i').style.background = r.color;
-    row.querySelector('span').textContent = `${sk.name} (${r.label})`;
+    row.querySelector('span').textContent = `${pre}${sk.name} (${r.label})`;
     row.querySelector('b').textContent = sk.odds + '%';
     box.appendChild(row);
   }
-})();
+}
 
 // opening: a CS-style strip of items that spins and stops on what the server rolled
 function rollLocal() {
@@ -5057,18 +5049,21 @@ function skinTile(id) {
   d.append(sw, n);
   return d;
 }
-async function openCase() {
+// knife = 노이펙트 카람빗 상자: same six finishes for the 카람빗, owned as 'k_<id>'
+async function openCase(knife = false) {
+  const btn = $(knife ? 'btn-open-kcase' : 'btn-open-case'), price = knife ? KB_CASE_PRICE : CASE_PRICE;
   if (!sb || !account.profile) return shopToast('로그인해야 상자를 열 수 있어요');
-  if ((account.profile.credits || 0) < CASE_PRICE) return shopToast('찬크레딧이 부족해요 · 퀘스트로 모아 보세요');
-  $('btn-open-case').disabled = true;
-  const { data, error } = await sb.rpc('open_case');
-  if (error || !data) { $('btn-open-case').disabled = false; return shopToast(error ? error.message : '열기 실패'); }
+  if ((account.profile.credits || 0) < price) return shopToast('찬크레딧이 부족해요 · 퀘스트로 모아 보세요');
+  btn.disabled = true;
+  const { data, error } = await sb.rpc(knife ? 'open_knife_case' : 'open_case');
+  if (error || !data) { btn.disabled = false; return shopToast(error ? error.message : '열기 실패'); }
+  const won = knife ? data.skin.slice(KB_PREFIX.length) : data.skin;
   account.profile.credits = data.credits;
   shop.owned[data.skin] = (shop.owned[data.skin] || 0) + 1;
   renderCredits();
   const strip = $('case-strip'), WIN = 44;
   strip.innerHTML = '';
-  for (let i = 0; i < 52; i++) strip.appendChild(skinTile(i === WIN ? data.skin : rollLocal()));
+  for (let i = 0; i < 52; i++) strip.appendChild(skinTile(i === WIN ? won : rollLocal()));
   $('case-open').classList.remove('hidden');
   $('case-result').classList.add('hidden');
   strip.style.transition = 'none';
@@ -5081,18 +5076,54 @@ async function openCase() {
   const ticks = setInterval(() => SFX.tone(1800, 0.02, 0.05), 90);
   setTimeout(() => {
     clearInterval(ticks);
-    const sk = AK_SKINS[data.skin], r = RARITY[sk.rarity];
-    $('case-result-name').textContent = sk.name;
+    const sk = AK_SKINS[won], r = RARITY[sk.rarity];
+    $('case-result-name').textContent = (knife ? '카람빗 | ' : '') + sk.name;
     $('case-result-name').style.color = r.color;
     $('case-result-rarity').textContent = r.label + ' 등급';
     $('case-result').classList.remove('hidden');
     sk.rarity === 'legend' || sk.rarity === 'epic' ? sfx.kill() : SFX.tone(1200, 0.12, 0.12, 0, 'triangle');
-    $('btn-open-case').disabled = false;
-    $('case-equip').onclick = () => equipSkin(data.skin).then(() => $('case-open').classList.add('hidden'));
+    btn.disabled = false;
+    $('case-equip').onclick = () => (knife ? equipKb(won) : equipSkin(won)).then(() => $('case-open').classList.add('hidden'));
     renderSkinInventory();
   }, 5400);
 }
-$('btn-open-case').onclick = openCase;
+$('btn-open-case').onclick = () => openCase(false);
+$('btn-open-kcase').onclick = () => openCase(true);
+
+// ── 카람빗 스킨: paint / Case Hardened on the claw blade; picked per device, only finishes you own ──
+const KB_PREFIX = 'k_', KB_CASE_PRICE = 50;
+let kbFinish = 'default';
+try { const f = localStorage.getItem('kbFinish'); if (AK_SKINS[f] && !AK_SKINS[f].custom) kbFinish = f; } catch (e) { /* storage blocked */ }
+const ownsKb = id => id === 'default' || !!(account.profile && (account.profile.super || shop.owned[KB_PREFIX + id]));
+const kbMats = {};
+function applyKbFinish() {
+  if (!kbBladeMesh) return;
+  if (!kbMats.blade) { kbMats.blade = kbBladeMesh.material.clone(); kbMats.spine = kbSpineMesh.material.clone(); }
+  const id = ownsKb(kbFinish) ? kbFinish : 'default', sk = AK_SKINS[id];
+  if (sk.gem) {
+    if (!kbMats[id]) {
+      // the blade's UVs are its shape coordinates (metres): stretch the gun-sized texture over the claw
+      const t = (gemCache[id] || (gemCache[id] = gemTexture(GEM_LOOKS[id]))).clone();
+      t.needsUpdate = true;
+      t.repeat.set(8.6, 7.9); t.offset.set(0.69, 1.46);
+      kbMats[id] = skinMat(t, true);
+    }
+    kbBladeMesh.material = kbSpineMesh.material = kbMats[id];
+    return;
+  }
+  kbBladeMesh.material = kbMats.blade; kbSpineMesh.material = kbMats.spine;
+  kbMats.blade.color.setHex(sk.paint || 0x9aa3ad);
+  kbMats.spine.color.set(sk.paint ? new THREE.Color(sk.paint).offsetHSL(0, 0, -0.12) : 0x5b626b);
+}
+async function equipKb(id) {
+  if (!ownsKb(id)) return;
+  kbFinish = id;
+  try { localStorage.setItem('kbFinish', id); } catch (e) { /* storage blocked */ }
+  if (knifeSkin !== 'karambit') { knifeSelect.value = 'karambit'; knifeSelect.dispatchEvent(new Event('change')); }
+  applyKbFinish();
+  renderSkinInventory();
+}
+applyKbFinish();
 $('case-close').onclick = () => $('case-open').classList.add('hidden');
 $('btn-charge').onclick = () => shopToast('충전은 아직 없어요');
 
@@ -5124,6 +5155,21 @@ function renderSkinInventory() {
     btn.disabled = !account.profile && id !== 'default';
     btn.onclick = () => equipSkin(id);
     item.append(t, b, btn);
+    box.appendChild(item);
+  }
+  // 카람빗 skins (from the 카람빗 상자)
+  if (ownsKnife('karambit')) for (const id of ['default', ...Object.keys(AK_SKINS).filter(k => k !== 'default' && !AK_SKINS[k].custom && ownsKb(k))]) {
+    const sk = AK_SKINS[id], r = RARITY[sk.rarity], on = knifeSkin === 'karambit' && kbFinish === id;
+    const item = document.createElement('div');
+    item.className = 'shop-item inv-item skin-item' + (on ? ' equipped' : '');
+    const b = document.createElement('b');
+    b.textContent = '카람빗 | ' + sk.name + (shop.owned[KB_PREFIX + id] > 1 ? ` ×${shop.owned[KB_PREFIX + id]}` : '');
+    b.style.color = r.color;
+    const btn = document.createElement('button');
+    btn.className = 'btn equip';
+    btn.textContent = on ? '장착됨' : '장착';
+    btn.onclick = () => equipKb(id);
+    item.append(skinTile(id), b, btn);
     box.appendChild(item);
   }
   if (!account.profile) {
@@ -5752,7 +5798,15 @@ function onNetMessage(m) {
         const r = net.remotes.get(s.id);
         if (!r) continue;
         r.hp = s.hp; r.dead = s.dead;
-        r.buf.push({ time: performance.now() / 1000, p: s.p, yaw: s.yaw, pitch: s.pitch, w: s.w, cr: s.cr || 0 });
+        // how evenly this player's snapshots arrive: the draw delay below grows with the gaps and jitter
+        const at = performance.now() / 1000;
+        if (r.lastAt) {
+          const gap = Math.min(0.5, at - r.lastAt);
+          r.gapAvg = r.gapAvg ? r.gapAvg * 0.9 + gap * 0.1 : gap;
+          r.jitter = (r.jitter || 0) * 0.9 + Math.abs(gap - r.gapAvg) * 0.1;
+        }
+        r.lastAt = at;
+        r.buf.push({ time: at, p: s.p, yaw: s.yaw, pitch: s.pitch, w: s.w, cr: s.cr || 0 });
         if (r.buf.length > 20) r.buf.shift();
       }
       break;
@@ -5766,9 +5820,9 @@ function onNetMessage(m) {
       const icon = m.w === 'knife' ? '🔪' : (m.head ? '🎯' : '▶');
       addFeed(`${teamSpan(m.killer)} ${icon} ${teamSpan(m.victim)}`);
       if (m.victim === net.id) { player.dead = true; $('dead-msg').style.display = 'block'; }
-      if (m.killer === net.id) showKill(m.w === 'knife' ? 'KNIFED' : m.head ? 'HEADSHOT' : 'ELIMINATED');
-      const r = net.remotes.get(m.victim);
-      if (r) { r.dead = true; r.avatar.userData.dead = true; r.avatar.userData.deadT = 0; }
+      const r = net.remotes.get(m.victim), predicted = r && r.avatar.userData.predT;
+      if (m.killer === net.id && !predicted) showKill(m.w === 'knife' ? 'KNIFED' : m.head ? 'HEADSHOT' : 'ELIMINATED');
+      if (r) { r.dead = true; r.avatar.userData.dead = true; r.avatar.userData.predT = 0; if (!predicted) r.avatar.userData.deadT = 0; }
       break;
     }
     case 'shot': {
@@ -5847,6 +5901,12 @@ function reportHit(dummy, dmg, head, w) {
   if (dummy.userData.team !== net.myTeam && net.phase === 'live') {
     netSend({ t: 'hit', target: dummy.userData.remoteId, dmg, head, w });
     showHitmarker(head);
+    // lethal on our screen: drop them now like the practice range (the host confirms; if not, they stand back up)
+    const r = net.remotes.get(dummy.userData.remoteId), u = dummy.userData;
+    if (r && !r.dead && !u.dead && dmg >= (r.hp ?? 100)) {
+      u.dead = true; u.deadT = 0; u.predT = performance.now() / 1000;
+      showKill(w === 'knife' ? 'KNIFED' : head ? 'HEADSHOT' : 'ELIMINATED');
+    }
   }
   return true;
 }
@@ -6067,17 +6127,23 @@ function updateNet(dt) {
   }
 
   // draw others 100 ms in the past, blending between the two snapshots around that time
-  const renderTime = performance.now() / 1000 - INTERP_DELAY;
   const now = performance.now() / 1000;
   for (const r of net.remotes.values()) {
     const d = r.avatar, u = d.userData;
     const b = r.buf;
+    // jitter buffer: draw just far enough in the past that the next snapshot has (almost always) arrived
+    const want = Math.min(0.3, Math.max(INTERP_DELAY, (r.gapAvg || 0.05) * 1.5 + (r.jitter || 0) * 3));
+    r.delay = r.delay ? r.delay + (want - r.delay) * Math.min(1, dt * 2) : want;
+    const renderTime = now - r.delay;
+    // a kill we predicted (see reportHit) that the host never confirmed: stand them back up
+    if (u.predT && (r.dead || now - u.predT > 0.8)) { if (!r.dead) { u.dead = false; } u.predT = 0; }
     if (b.length) {
       let i = b.length - 1;
       while (i > 0 && b[i - 1].time > renderTime) i--;
       const s1 = b[i], s0 = b[Math.max(0, i - 1)];
       const span = s1.time - s0.time;
-      const k = span > 0 ? Math.min(1, Math.max(0, (renderTime - s0.time) / span)) : 1;
+      // past the newest snapshot (a late packet): keep moving the same way for up to 100 ms instead of freezing
+      const k = span > 0 ? Math.min(1 + 0.1 / span, Math.max(0, (renderTime - s0.time) / span)) : 1;
       const px = s0.p[0] + (s1.p[0] - s0.p[0]) * k, py = s0.p[1] + (s1.p[1] - s0.p[1]) * k, pz = s0.p[2] + (s1.p[2] - s0.p[2]) * k;
       const moved = Math.hypot(px - d.position.x, pz - d.position.z) / Math.max(dt, 1e-3);
       d.position.set(px, py, pz);

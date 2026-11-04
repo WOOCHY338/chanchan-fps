@@ -254,3 +254,28 @@ end $$;
 revoke execute on function public.owner_give_credits(text, int) from public, anon;
 grant execute on function public.owner_give_credits(text, int) to authenticated;
 notify pgrst, 'reload schema';
+
+-- ── 노이펙트 카람빗 상자: 50 찬크레딧, A-K 상자와 같은 확률. 카람빗 스킨은 'k_<스킨>'으로 저장 (하나라도 있으면 카람빗 보유) ──
+create or replace function public.open_knife_case() returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  p public.profiles;
+  r double precision := random() * 100;
+  s text;
+begin
+  p := public._my_profile();
+  if p.credits < 50 then raise exception '찬크레딧이 부족해요'; end if;
+  s := case
+    when r < 0.3 then 'bluegem'
+    when r < 3 then 'redgem'
+    when r < 15 then 'greengreen'
+    when r < 43.333 then 'orange'
+    when r < 71.667 then 'navy'
+    else 'pink' end;
+  update public.profiles set credits = credits - 50 where id = p.id;
+  insert into public.skins_owned (user_id, skin) values (p.id, 'k_' || s);
+  return json_build_object('skin', 'k_' || s, 'credits', p.credits - 50);
+end $$;
+revoke execute on function public.open_knife_case() from public, anon;
+grant execute on function public.open_knife_case() to authenticated;
+notify pgrst, 'reload schema';
