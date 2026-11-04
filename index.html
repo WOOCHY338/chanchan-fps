@@ -4580,14 +4580,16 @@ const CASE_PRICE = 30;
 // ramp: where the marbled noise value lands (0 = deepest temper colour → 1 = bare steel); bias: how much the colour
 // shifts with height on the gun (the real blue gems are flooded blue on top and go gold / steel lower down)
 const GEM_LOOKS = {
-  bluegem: { seed: 661, bias: 0.55, ramp: [[0, '#081a8c'], [0.22, '#1739d6'], [0.38, '#2f63ff'], [0.5, '#4a3fc8'], [0.58, '#6b5aa8'],
-    [0.66, '#9a9aa6'], [0.74, '#c9a04a'], [0.84, '#e6c46a'], [0.93, '#b8b2a2'], [1, '#8d939c']] },
-  redgem: { seed: 387, bias: 0.55, ramp: [[0, '#5a0408'], [0.22, '#a3121b'], [0.38, '#e0261f'], [0.5, '#ff5a2a'], [0.6, '#c2564a'],
-    [0.68, '#a09890'], [0.76, '#e0a83a'], [0.86, '#ffd25a'], [0.94, '#b8b2a2'], [1, '#8d939c']] },
+  // AK-47 Case Hardened #661: bright glossy steel flooded with sky-to-royal blue, soft clouds of pale gold lower down
+  bluegem: { seed: 661, bias: 0.42, ramp: [[0, '#1c4ccc'], [0.22, '#2b6fe8'], [0.42, '#4a9bff'], [0.55, '#78b6ee'], [0.63, '#a6c6d6'],
+    [0.71, '#d9c37e'], [0.84, '#ead08c'], [1, '#c9a65a']] },
+  // the red one (Heat Treated style): crimson to orange-red with the same pale gold clouds
+  redgem: { seed: 387, bias: 0.42, ramp: [[0, '#8c1016'], [0.22, '#c81f1f'], [0.42, '#ec4a2c'], [0.55, '#f2834e'], [0.63, '#d9b394'],
+    [0.71, '#e2bb55'], [0.84, '#f0d084'], [1, '#c9a65a']] },
 };
 function gemTexture(look) {
-  // Case Hardened like CS2: heat-tempered steel with flowing, marbled pools (domain-warped noise), thin dark temper
-  // lines where the colours meet, and brushed steel grain on top
+  // Case Hardened like CS2: bright heat-tempered steel with soft flowing colour clouds (domain-warped noise)
+  // and a faint brushed grain
   const W = 1024, H = 384;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
@@ -4602,19 +4604,20 @@ function gemTexture(look) {
     return a + (b - a) * u + (c2 - a) * v + (a - b - c2 + d) * u * v;
   };
   const fbm = (x, y) => { let f = 0, amp = 0.5; for (let o = 0; o < 4; o++) { f += amp * noise(x, y); x *= 2.03; y *= 2.03; amp *= 0.5; } return f / 0.9375; };
-  const ramp = look.ramp.map(([t, hex]) => { const col = new THREE.Color(hex); return [t, col.r * 255, col.g * 255, col.b * 255]; });
+  // plain sRGB bytes (THREE.Color would convert to linear and darken everything)
+  const ramp = look.ramp.map(([t, hex]) => { const v = parseInt(hex.slice(1), 16); return [t, v >> 16, (v >> 8) & 255, v & 255]; });
   for (let y = 0; y < H; y++) {
     const band = y / H;   // 0 = top of the gun
     for (let x = 0; x < W; x++) {
-      const u = x / W * 7, v = y / H * 2.6;
+      const u = x / W * 4, v = y / H * 1.8;   // big soft clouds, like the real finish
       const qx = fbm(u, v), qy = fbm(u + 5.2, v + 1.3);
-      const n = fbm(u + 3.2 * qx, v + 3.2 * qy);
+      const n = fbm(u + 2 * qx, v + 2 * qy);
       let t = Math.min(1, Math.max(0, (n - 0.5) * 1.9 + 0.5 - look.bias * 0.5 + band * look.bias));
       let k = 1;
       while (k < ramp.length - 1 && ramp[k][0] < t) k++;
       const r0 = ramp[k - 1], r1 = ramp[k], f = (t - r0[0]) / Math.max(1e-6, r1[0] - r0[0]);
-      const line = Math.abs(((n * 9) % 1) - 0.5) < 0.035 ? 0.62 : 1;   // temper lines
-      const grain = 0.9 + 0.2 * noise(x * 0.04, y * 1.7);               // brushed along the gun
+      const line = 1;
+      const grain = 0.95 + 0.1 * noise(x * 0.04, y * 1.7);              // faint brushed grain along the gun
       const i = (y * W + x) * 4;
       px[i] = (r0[1] + (r1[1] - r0[1]) * f) * line * grain;
       px[i + 1] = (r0[2] + (r1[2] - r0[2]) * f) * line * grain;
