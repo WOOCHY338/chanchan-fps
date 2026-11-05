@@ -6510,7 +6510,8 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   look.addEventListener('pointermove', e => {
     const L = touchUI.look;
     if (!L || L.id !== e.pointerId) return;
-    mouse.dx += (e.clientX - L.x) * 2.2; mouse.dy += (e.clientY - L.y) * 2.2;
+    // ~220° per swipe across the screen at the default sensitivity (the 설정 slider still scales it)
+    mouse.dx += (e.clientX - L.x) * 8; mouse.dy += (e.clientY - L.y) * 8;
     L.x = e.clientX; L.y = e.clientY;
   });
   const lookUp = e => { if (touchUI.look && touchUI.look.id === e.pointerId) touchUI.look = null; };
