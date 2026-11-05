@@ -3083,6 +3083,9 @@ function leaveGameFullscreen() {
 }
 
 function lockPointer() {
+  // 모바일: never lock the mouse. On a touch laptop the lock really happens, and then Chrome sends every touch to
+  // the canvas, so the stick and the look area got nothing
+  if (touchUI.on) { isLocked = true; startScreen.classList.add('hidden'); return; }
   enterGameFullscreen();
   // Firefox / Safari return nothing here (only Chromium returns a promise): calling .then on it threw, so the
   // game never started there. The pointerlockchange handler does the real work in every browser.
@@ -3098,6 +3101,7 @@ renderer.domElement.addEventListener('click', () => {
 });
 
 document.addEventListener('pointerlockchange', () => {
+  if (touchUI.on) { if (document.pointerLockElement) document.exitPointerLock(); return; }
   const locked = document.pointerLockElement === renderer.domElement;
   isLocked = locked;
   if (locked) {
@@ -6526,11 +6530,16 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
     editBtn.style.display = touchUI.on ? 'block' : 'none';
     ask.remove();
     SFX.unlock();
-    if (touchUI.on) { autoFullscreen = false; document.documentElement.requestFullscreen?.().catch(() => {}); }
+    if (touchUI.on) {
+      autoFullscreen = false;
+      document.body.style.touchAction = 'none';   // no page scroll / pinch zoom while playing with touch
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
   });
   // in a game the touch buttons show; there's no pointer lock, so playing counts as "locked"
   setInterval(() => {
     if (touchUI.edit) return;
+    if (touchUI.on && document.pointerLockElement) document.exitPointerLock();
     const show = touchUI.on && inGame() && !$('settings-panel').classList.contains('visible');
     ui.classList.toggle('on', show);
     $('t-look').style.display = gunSel.open ? 'none' : '';   // B 총 선택 open: let taps reach the gun buttons
