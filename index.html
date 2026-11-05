@@ -3084,10 +3084,11 @@ function leaveGameFullscreen() {
 
 function lockPointer() {
   enterGameFullscreen();
-  renderer.domElement.requestPointerLock().then(() => {
-    isLocked = true;
-    startScreen.classList.add('hidden');
-  }).catch(() => {});
+  // Firefox / Safari return nothing here (only Chromium returns a promise): calling .then on it threw, so the
+  // game never started there. The pointerlockchange handler does the real work in every browser.
+  let req = null;
+  try { req = renderer.domElement.requestPointerLock(); } catch (e) { /* not allowed right now */ }
+  if (req && req.then) req.then(() => { isLocked = true; startScreen.classList.add('hidden'); }).catch(() => {});
 }
 
 const inGame = () => net.mode === 'practice' || net.mode === 'online';
