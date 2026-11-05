@@ -2349,6 +2349,7 @@ const KARAMBIT_RING = new THREE.Vector3(0, 0.078, 0);   // index-finger ring, th
 // handle with grey wraps and a gold cap. Local +y runs from the pommel to the head (like the knives), edge toward -x.
 const axeKnife = new THREE.Group();
 knifeModel.add(axeKnife);
+axeKnife.rotation.y = Math.PI;   // edge toward the screen centre (left), like the clip, so it leads the right-to-left cut
 let axHeadMesh = null, axSpikeMesh = null;   // painted by the 도끼 skins (applyAxFinish)
 {
   const a = axeKnife;
@@ -2684,56 +2685,59 @@ const KARAMBIT_ANIMS = {
       { t: 1.3, at: csAt(0.66, 0.78), r: KR_IDLE.r },
       { t: 1.4, ...KR_IDLE }] },
 };
-// 도끼 (Valorant 도끼모션 clip): idle low right with the head up-left; positions in CS screen fractions like the karambit
-const AX_IDLE = { at: csAt(0.7, 0.86), r: [-0.15, -0.2, 0.45] };
+// 도끼, traced frame by frame from the 발로란트 도끼모션 clip (frames every 0.05-0.1 s; positions are CS screen fractions
+// of the hand, like the karambit). Held upright at the right with the head on top; swings are fast with a slow settle.
+const AX_IDLE = { at: csAt(0.8, 0.98), r: [-0.1, -0.25, 0.08] };
 const AXE_ANIMS = {
-  // 네오프런티어 스왑: comes up the right side upright, head first, then tips into the idle hold
-  draw: { dur: 0.75, ease: 'spline',
-    keys: [{ t: 0, at: csAt(0.86, 1.4), r: [0.5, -0.2, -0.1] },
-      { t: 0.25, at: csAt(0.8, 0.85), r: [0.2, -0.3, 0.0] },
-      { t: 0.45, at: csAt(0.76, 0.7), r: [-0.1, -0.3, 0.15] },
-      { t: 0.75, ...AX_IDLE }] },
-  // 프라임 좌클릭: cock high right, sweep flat across the screen right → left, follow through off the left edge
-  lightA: { dur: 0.85, hitAt: 0.2, nextAt: 0.5, ease: 'spline', range: KNIFE.lightRange + 0.2, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
-    streak: { from: [(0.92 - 0.5) / 0.5625 + 0.5, 0.48], to: [(0.12 - 0.5) / 0.5625 + 0.5, 0.56], d: 0.55, width: 0.04, color: 0x6fa8ff },
+  // 스왑 (clip 0.0-0.6 s): rises out of the bottom right already upright, a touch past the hold, settles
+  draw: { dur: 0.6, ease: 'spline',
+    keys: [{ t: 0, at: csAt(0.86, 1.5), r: [0.4, -0.3, -0.1] },
+      { t: 0.2, at: csAt(0.82, 1.08), r: [0.15, -0.3, 0.0] },
+      { t: 0.34, at: csAt(0.8, 0.94), r: [-0.18, -0.25, 0.12] },
+      { t: 0.6, ...AX_IDLE }] },
+  // 좌클릭 (clip 0.85-1.25 s): a quick cock to the right, then a diagonal cut from the top right down through the
+  // middle to the bottom left, out of view, and back up from below
+  lightA: { dur: 0.72, hitAt: 0.14, nextAt: 0.42, ease: 'spline', range: KNIFE.lightRange + 0.2, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
+    streak: { from: [(0.86 - 0.5) / 0.5625 + 0.5, 0.28], to: [(0.3 - 0.5) / 0.5625 + 0.5, 0.9], d: 0.55, width: 0.045, color: 0x6fa8ff },
     keys: [{ t: 0, ...AX_IDLE },
-      { t: 0.1, at: csAt(0.92, 0.55), r: [0.1, -0.6, -1.0] },
-      { t: 0.2, at: csAt(0.55, 0.52), r: [0.2, -0.3, 1.45] },
-      { t: 0.3, at: csAt(0.15, 0.62), r: [0.3, 0, 2.3] },
-      { t: 0.45, at: csAt(0.1, 1.2), r: [0.3, 0, 2.6] },
-      { t: 0.65, at: csAt(0.6, 1.3), r: [0, -0.2, 0.8] },
-      { t: 0.85, ...AX_IDLE }] },
-  // the backhand the other way (left → right) for a second light swing
-  lightB: { dur: 0.85, hitAt: 0.22, nextAt: 0.5, ease: 'spline', range: KNIFE.lightRange + 0.2, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
-    streak: { from: [(0.15 - 0.5) / 0.5625 + 0.5, 0.6], to: [(0.9 - 0.5) / 0.5625 + 0.5, 0.5], d: 0.55, width: 0.04, color: 0x6fa8ff },
+      { t: 0.06, at: csAt(0.86, 0.9), r: [-0.2, -0.4, -0.35] },
+      { t: 0.11, at: csAt(0.72, 0.78), r: [0.1, -0.2, 0.9] },
+      { t: 0.16, at: csAt(0.52, 0.92), r: [0.3, 0, 1.9] },
+      { t: 0.24, at: csAt(0.3, 1.28), r: [0.3, 0, 2.4] },
+      { t: 0.46, at: csAt(0.8, 1.35), r: [0, -0.25, 0.25] },
+      { t: 0.72, ...AX_IDLE }] },
+  // the second click (clip 1.3-1.6 s) is the same cut, raised a bit higher first
+  lightB: { dur: 0.72, hitAt: 0.15, nextAt: 0.42, ease: 'spline', range: KNIFE.lightRange + 0.2, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
+    streak: { from: [(0.88 - 0.5) / 0.5625 + 0.5, 0.22], to: [(0.28 - 0.5) / 0.5625 + 0.5, 0.88], d: 0.55, width: 0.045, color: 0x6fa8ff },
     keys: [{ t: 0, ...AX_IDLE },
-      { t: 0.12, at: csAt(0.2, 0.62), r: [0.2, 0.3, 2.3] },
-      { t: 0.22, at: csAt(0.55, 0.55), r: [0.1, 0, 1.6] },
-      { t: 0.32, at: csAt(0.95, 0.52), r: [0, -0.4, -0.6] },
-      { t: 0.5, at: csAt(1.05, 1.15), r: [0.2, -0.3, -0.3] },
-      { t: 0.68, at: csAt(0.75, 1.25), r: [0, -0.2, 0.3] },
-      { t: 0.85, ...AX_IDLE }] },
-  // 우클릭: raise it high over the head (head tipped back), chop straight down through the centre, hold, recover
-  heavy: { dur: 1.2, hitAt: 0.46, ease: 'spline', range: KNIFE.heavyRange + 0.2, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
-    streak: { from: [0.52, 0.12], to: [0.5, 0.72], d: 0.6, width: 0.05, color: 0x45ff8a },
+      { t: 0.07, at: csAt(0.88, 0.8), r: [-0.25, -0.4, -0.3] },
+      { t: 0.12, at: csAt(0.74, 0.72), r: [0.1, -0.2, 0.85] },
+      { t: 0.17, at: csAt(0.52, 0.9), r: [0.3, 0, 1.85] },
+      { t: 0.25, at: csAt(0.28, 1.28), r: [0.3, 0, 2.4] },
+      { t: 0.46, at: csAt(0.8, 1.35), r: [0, -0.25, 0.25] },
+      { t: 0.72, ...AX_IDLE }] },
+  // 우클릭 (clip 3.0-3.9 s): drops out of view at the right, swings up close over the head, and chops straight down
+  // the middle of the screen (the vertical trail), then comes back up from below
+  heavy: { dur: 1.2, hitAt: 0.58, ease: 'spline', range: KNIFE.heavyRange + 0.2, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
+    streak: { from: [0.5, 0.06], to: [0.5, 0.88], d: 0.6, width: 0.06, color: 0x45ff8a },
     keys: [{ t: 0, ...AX_IDLE },
-      { t: 0.18, at: csAt(0.66, 0.42, 0.5), r: [1.1, -0.2, 0.2] },
-      { t: 0.32, at: csAt(0.6, 0.25, 0.48), r: [1.5, -0.1, 0.1] },
-      { t: 0.46, at: csAt(0.53, 0.8, 0.55), r: [-1.2, -0.05, 0.05] },
-      { t: 0.62, at: csAt(0.53, 0.92, 0.55), r: [-1.35, -0.05, 0.05] },
-      { t: 0.9, at: csAt(0.66, 1.05), r: [-0.6, -0.2, 0.3] },
+      { t: 0.18, at: csAt(0.9, 1.3), r: [0.8, -0.3, -0.4] },
+      { t: 0.38, at: csAt(0.78, 0.72), r: [1.25, -0.2, 0.1] },
+      { t: 0.5, at: csAt(0.56, 0.42, 0.45), r: [0.35, 0, 0.05] },
+      { t: 0.58, at: csAt(0.52, 0.96, 0.5), r: [-1.3, 0, 0.05] },
+      { t: 0.7, at: csAt(0.5, 1.32), r: [-1.5, 0, 0] },
+      { t: 0.95, at: csAt(0.8, 1.32), r: [-0.3, -0.25, 0.2] },
       { t: 1.2, ...AX_IDLE }] },
-  // 네오프런티어 자세히보기: lift it in front, turn the face of the head to the camera, roll it flat to show the
-  // neon edge along the top, hold, and bring it back down
-  inspect: { dur: 4.4, ease: 'spline', isInspect: true,
+  // 자세히보기 (clip 10-13.5 s): lift it, turn the head's face to the camera and hold, then lay it flat with the head
+  // pointing left to show the neon edge, hold, and back to the hold
+  inspect: { dur: 3.6, ease: 'spline', isInspect: true,
     keys: [{ t: 0, ...AX_IDLE },
-      { t: 0.45, at: csAt(0.66, 0.9, 0.45), r: [-0.7, -0.2, 0.35] },
-      { t: 1.0, at: csAt(0.64, 0.88, 0.44), r: [-0.8, 0.9, 0.4] },
-      { t: 1.8, at: csAt(0.64, 0.88, 0.44), r: [-0.8, 1.15, 0.45] },
-      { t: 2.4, at: csAt(0.6, 0.62, 0.4), r: [0.3, 0.4, 1.55] },
-      { t: 3.4, at: csAt(0.6, 0.62, 0.4), r: [0.35, 0.3, 1.6] },
-      { t: 3.9, at: csAt(0.68, 0.78), r: [0, -0.2, 0.6] },
-      { t: 4.4, ...AX_IDLE }] },
+      { t: 0.4, at: csAt(0.7, 0.92, 0.45), r: [-0.4, -0.6, 0.15] },
+      { t: 1.4, at: csAt(0.68, 0.9, 0.44), r: [-0.45, -0.85, 0.2] },
+      { t: 2.0, at: csAt(0.6, 0.96, 0.45), r: [0.2, -0.2, 1.6] },
+      { t: 2.9, at: csAt(0.6, 0.96, 0.45), r: [0.25, -0.1, 1.66] },
+      { t: 3.3, at: csAt(0.75, 1.02), r: [0, -0.25, 0.4] },
+      { t: 3.6, ...AX_IDLE }] },
 };
 for (const anim of [...Object.values(KARAMBIT_ANIMS), ...Object.values(AXE_ANIMS)]) {
   // spline keys: shift each Euler angle by whole turns to sit within π of the previous key (same rotation),
