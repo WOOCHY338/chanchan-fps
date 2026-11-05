@@ -4623,11 +4623,14 @@ function renderRanked(top = []) {
     const badge = document.createElement('span');
     badge.className = 'rk-badge';
     badge.style.background = rankColor(p);
-    badge.textContent = rankLabel(p);
+    const placing = p.placement > 0;   // 배치고사: 3 matches decide the starting tier
+    badge.textContent = placing ? '배치' : rankLabel(p);
+    if (placing) badge.style.background = '#6b7280';
     const info = document.createElement('span');
-    info.textContent = ` ${p.nickname} · ${p.division === TOP_DIVISION ? p.points : Math.min(99, p.points)}점 · ${p.wins}승 ${p.losses}패`;
+    info.textContent = placing ? ` ${p.nickname} · 배치 ${3 - p.placement}/3 (${p.placement_wins || 0}승) · 남은 판 ${p.placement}`
+      : ` ${p.nickname} · ${p.division === TOP_DIVISION ? p.points : Math.min(99, p.points)}점 · ${p.wins}승 ${p.losses}패`;
     $('rk-me').append(badge, info);
-    $('rk-bar').style.width = (p.division === TOP_DIVISION ? 100 : p.points) + '%';
+    $('rk-bar').style.width = (placing ? (3 - p.placement) / 3 * 100 : p.division === TOP_DIVISION ? 100 : p.points) + '%';
   } else {
     $('rk-me').textContent = '로그인하면 경쟁전을 할 수 있어요';
     $('rk-bar').style.width = '0';
@@ -4716,7 +4719,7 @@ function startQueueScreen() {
   queue.start = performance.now();
   const size = account.size;
   $('q-mode').textContent = `경쟁전 ${size}대${size}`;
-  $('q-sub').textContent = `${divName(account.profile.division)} · 모든 티어 매칭`;
+  $('q-sub').textContent = `${account.profile.placement > 0 ? `배치 ${4 - account.profile.placement}번째 판` : divName(account.profile.division)} · 모든 티어 매칭`;
   $('queue').classList.remove('found');
   showOnly($('queue'));
   clearInterval(queue.tick);
@@ -4822,9 +4825,20 @@ $('btn-ranked').onclick = rankedMatch;
 // match over: the server adds or takes the points (one result per 60 s)
 async function reportRanked(win) {
   if (!sb || !account.profile) return;
-  const before = account.profile.division * 100 + account.profile.points;
+  const before = account.profile.division * 100 + account.profile.points, wasPlacing = account.profile.placement > 0;
   const { data, error } = await sb.rpc('report_result', { win });
   if (error || !data) return;
+  if (wasPlacing) {
+    // 배치고사: no points while placing; after the third match the tier is set by how many were won
+    account.profile = data;
+    const msg = data.placement > 0 ? `배치 ${3 - data.placement}/3 · ${win ? '승리' : '패배'} (${data.placement_wins}승)`
+      : `배치 완료 (${data.placement_wins}승 ${3 - data.placement_wins}패) → ${divName(data.division)}`;
+    addChat({ id: 0, name: '경쟁전', team: '', text: msg });
+    account.lastResult = msg;
+    loadLeaderboard();
+    refreshShop();
+    return;
+  }
   const after = data.division * 100 + data.points;
   const promoted = data.division > account.profile.division, demoted = data.division < account.profile.division;
   account.profile = data;

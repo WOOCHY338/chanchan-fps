@@ -45,6 +45,7 @@
 - Windows 경로가 길어서 git은 `git -c core.longpaths=true ...`.
 
 ## 작업 기록 (최신이 위)
+- 2026-11-05: 배치고사 3판(`profiles.placement`/`placement_wins`, `report_result`에서 처리: 0승 스톤2 · 1승 브론즈2 · 2승 실버2 · 3승 골드2, 배치 중 점수 변동 없음). 처음 SQL 실행 때 스톤(division ≤ 1)만 배치 3판, 새 계정도 배치부터. **아직 Supabase에 SQL 안 넣음** (supabase_shop.sql 끝의 배치고사 + open_axe_case).
 - 2026-11-05: 도끼(`axeKnife`, 발로란트 네오프런티어 도끼 모양: 검은 머리 + 초록 네온 날) + 모션(`AXE_ANIMS`: 프라임 좌클릭 가로 베기 lightA/lightB, 우클릭 내려찍기 heavy, 스왑 draw, 자세히보기 inspect — 유튜브 L1BK0e2Zq00 자막 기준). 노이펙트 도끼 상자(`open_axe_case`, 50, 같은 확률, 스킨 `a_<id>`, 장착 `axFinish`/`applyAxFinish`).
 - 2026-11-05: 데스매치(`type: 'dm'`, `DM` 설정: 30킬/5분/1.5초 부활) — 개인전(시작 때 모두 red 팀으로 바꿔 적으로 보이게), 부활 위치는 `DM_POINTS`(아레나 빈 곳 격자) 중 살아있는 사람과 가장 먼 곳, 메시지 `respawn`/`dmscore`, 끝나면 `end.dm`에 킬 수. 산탄총 동그란 조준점(`#crosshair.round`).
 - 2026-11-05: 멀티 지연 줄임 — 게스트마다 두 번째 PeerJS 연결(`metadata.fast`, `reliable:false` = 순서 없음)로 state/snap 전송(`netSendFast`, 호스트 `setFast`/`sendFast`), 순서 뒤바뀐 건 버림(`me.lastTs`, `net.lastHt`). 전송·호스트 틱 20→30Hz, INTERP 0.05, 중계 플러시 33ms. 모바일: 시작할 때 PC/모바일 선택, 터치 버튼 편집(`touchLayout`, 조이스틱 `touchStick`), 조준/앉기 토글(`touchToggle`), 모바일 전용 조준 보정(`AIM_ASSIST`: 5° 안 감속 35%, 조작 중일 때만 초당 9° 끌림, 벽 뒤 X). 모바일은 포인터 락 안 씀(터치 노트북에서 터치가 캔버스로만 가서 조이스틱이 죽었음).

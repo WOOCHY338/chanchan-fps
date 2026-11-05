@@ -304,3 +304,50 @@ end $$;
 revoke execute on function public.open_axe_case() from public, anon;
 grant execute on function public.open_axe_case() to authenticated;
 notify pgrst, 'reload schema';
+
+-- ── 배치고사 (placement): 3판으로 시작 티어를 정함. 0승 스톤2 · 1승 브론즈2 · 2승 실버2 · 3승 골드2.
+-- 처음 실행할 때만: 지금 스톤(스톤 1·2)인 계정은 모두 배치 3판, 나머지는 배치 없음. 새 계정은 배치 3판부터.
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'placement') then
+    alter table public.profiles add column placement int not null default 3;
+    alter table public.profiles add column placement_wins int not null default 0;
+    update public.profiles set placement = case when division <= 1 then 3 else 0 end, placement_wins = 0;
+  end if;
+end $$;
+
+create or replace function public.report_result(win boolean) returns public.profiles
+language plpgsql security definer set search_path = public as $$
+declare
+  p public.profiles;
+  delta int;
+begin
+  p := public._my_profile();
+  if p.last_result_at is not null and now() - p.last_result_at < interval '60 seconds' then return p; end if;
+  if p.placement > 0 then
+    -- 배치 중: 점수 변동 없음, 3판째에 승수로 티어 결정
+    if win then p.wins := p.wins + 1; p.placement_wins := p.placement_wins + 1; else p.losses := p.losses + 1; end if;
+    p.placement := p.placement - 1;
+    if p.placement = 0 then p.division := (array[1, 3, 5, 7])[p.placement_wins + 1]; p.points := 0; end if;
+    update public.profiles set placement = p.placement, placement_wins = p.placement_wins, division = p.division, points = p.points,
+      wins = p.wins, losses = p.losses, last_result_at = now(),
+      ranked_today = ranked_today + 1, ranked_wins_today = ranked_wins_today + (case when win then 1 else 0 end)
+      where id = p.id returning * into p;
+    return p;
+  end if;
+  delta := case when win then 25 + floor(random() * 11)::int else -(20 + floor(random() * 11)::int) end;
+  p.points := p.points + delta;
+  if win then p.wins := p.wins + 1; else p.losses := p.losses + 1; end if;
+  while p.points >= 100 and p.division < 15 loop
+    p.points := p.points - 100; p.division := p.division + 1;
+  end loop;
+  while p.points < 0 loop
+    if p.division > 0 then p.division := p.division - 1; p.points := p.points + 100;
+    else p.points := 0; end if;
+  end loop;
+  update public.profiles set points = p.points, division = p.division, wins = p.wins, losses = p.losses, last_result_at = now(),
+    ranked_today = ranked_today + 1, ranked_wins_today = ranked_wins_today + (case when win then 1 else 0 end)
+    where id = p.id returning * into p;
+  return p;
+end $$;
+grant execute on function public.report_result(boolean) to authenticated;
+notify pgrst, 'reload schema';
