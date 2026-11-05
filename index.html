@@ -3233,6 +3233,32 @@ function cameraCollisionCheck(from, to, maxDist) {
   return maxDist;
 }
 
+// mobile aim assist: within `cone` degrees of the crosshair, look speed drops by up to `slow`, and the view drifts
+// toward the target at up to `pull` degrees a second (only while the player is steering)
+const AIM_ASSIST = { cone: 5, slow: 0.35, pull: 9 };
+const _aaV = new THREE.Vector3(), _aaRay = new THREE.Raycaster();
+function aimAssistTarget() {
+  camera.updateMatrixWorld();
+  let best = null;
+  for (const d of dummies) {
+    const u = d.userData;
+    if (!d.visible || u.dead || (net.mode === 'online' && u.team === net.myTeam)) continue;
+    const crouch = u.crouch || 0;
+    for (const h of [1.68 - 0.5 * crouch, 1.15 - 0.3 * crouch]) {     // head, then chest: whichever is closer to the crosshair
+      _aaV.set(d.position.x, d.position.y + h, d.position.z).applyMatrix4(camera.matrixWorldInverse);
+      if (_aaV.z >= -0.5) continue;                                     // behind or on top of me
+      const ax = Math.atan2(_aaV.x, -_aaV.z) * 180 / Math.PI, ay = Math.atan2(_aaV.y, -_aaV.z) * 180 / Math.PI;
+      const off = Math.hypot(ax, ay);
+      if (off > AIM_ASSIST.cone || (best && off >= best.off)) continue;
+      const to = new THREE.Vector3(d.position.x, d.position.y + h, d.position.z), dist = to.distanceTo(camera.position);
+      _aaRay.set(camera.position, to.sub(camera.position).normalize()); _aaRay.far = dist - 0.3;
+      if (_aaRay.intersectObjects(worldMeshes(), true).length) continue;   // behind a wall: no help
+      best = { off, ax, ay };
+    }
+  }
+  return best;
+}
+
 // ── GAME LOOP ──
 const clock = new THREE.Clock();
 let frameCount = 0;
@@ -3245,8 +3271,23 @@ function update(dt) {
   // ── Camera rotation from mouse ──
   // scale with zoom so aiming in ADS feels the same on screen
   const sensScale = Math.tan(camera.fov * Math.PI / 360) / Math.tan(CONFIG.fov * Math.PI / 360);
-  const lookYaw = -mouse.dx * CONFIG.sensitivity * 0.07 * sensScale;
-  const lookPitch = -mouse.dy * CONFIG.sensitivity * 0.07 * sensScale * (CONFIG.invertY ? -1 : 1);
+  let lookYaw = -mouse.dx * CONFIG.sensitivity * 0.07 * sensScale;
+  let lookPitch = -mouse.dy * CONFIG.sensitivity * 0.07 * sensScale * (CONFIG.invertY ? -1 : 1);
+  // 모바일 조준 보정 (like console aim assist, kept light so PC players don't mind): near a visible enemy the look
+  // slows down a little and, only while you're already turning or moving, drifts gently onto them.
+  // It never locks on, does nothing when you aren't touching the controls, and only counts what you can see.
+  const steering = mouse.dx || mouse.dy || keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD;
+  if (touchUI.on && steering && loadout.current !== 'knife') {
+    const t = aimAssistTarget();
+    if (t) {
+      const near = 1 - t.off / AIM_ASSIST.cone;                       // 1 on the crosshair → 0 at the edge
+      const slow = 1 - AIM_ASSIST.slow * near;
+      lookYaw *= slow; lookPitch *= slow;
+      const pull = AIM_ASSIST.pull * dt * (0.4 + 0.6 * near);          // degrees this frame, at most
+      lookYaw += -Math.max(-pull, Math.min(pull, t.ax));
+      lookPitch += Math.max(-pull * 0.6, Math.min(pull * 0.6, t.ay));
+    }
+  }
   cam.yaw += lookYaw;
   cam.pitch += lookPitch;
   cam.pitch = Math.max(CONFIG.cameraMinPitch, Math.min(CONFIG.cameraMaxPitch, cam.pitch));
@@ -3477,7 +3518,7 @@ const net = {
   remotes: new Map(),                        // id -> { avatar, buf, team, name, hp, dead, label }
   sendT: 0,
 };
-const INTERP_DELAY = 0.07;
+const INTERP_DELAY = 0.05;
 const tagRay = new THREE.Raycaster(), _tagFrom = new THREE.Vector3(), _tagTo = new THREE.Vector3();   // render others 100 ms in the past so there are always two snapshots to blend
 const practiceDummies = dummies.slice();
 camera.position.set(0, 1.6, 0);   // menu backdrop: stand in the arena instead of the default camera pose
@@ -3523,6 +3564,9 @@ function createHostRoom(code, mode, type = 'elim') {
     attack: null, bomb: null };
   const isBomb = () => room.type === 'bomb';   // the host can switch modes in the lobby
   const sendTo = (p, msg) => { try { p.send(msg); } catch (e) { /* peer gone */ } };
+  // snapshots go over the guest's fast channel when it has one: a lost packet is simply skipped (the next one is
+  // 33 ms away) instead of holding up everything behind it like the reliable channel does on Wi-Fi
+  const sendFast = (p, msg) => { try { (p.fast || p.send)(msg); } catch (e) { /* peer gone */ } };
   const broadcast = (msg, exceptId) => { for (const p of room.players.values()) if (p.id !== exceptId) sendTo(p, msg); };
   const teamOf = team => [...room.players.values()].filter(p => p.team === team);
   const lobbyInfo = () => ({ t: 'lobby', room: room.code, mode: room.mode, type: room.type, host: room.host, phase: room.phase, score: room.score,
@@ -3636,14 +3680,20 @@ function createHostRoom(code, mode, type = 'elim') {
       const w = room.score.blue >= RULES.winScore ? 'blue' : room.score.red >= RULES.winScore ? 'red' : null;
       if (w) endMatch(w); else startRound();
     }
-    broadcast({ t: 'snap', timer: room.timer, phase: room.phase, bomb: room.bomb, ht: +(performance.now() / 1000).toFixed(3),
+    const snap = { t: 'snap', timer: room.timer, phase: room.phase, bomb: room.bomb, ht: +(performance.now() / 1000).toFixed(3),
       ps: [...room.players.values()].map(p => ({ id: p.id, ...p.state, at: p.stateAt ? +p.stateAt.toFixed(3) : undefined,
-        hp: p.hp, dead: p.dead, act: p.actT > 0 ? p.act : null })) });
+        hp: p.hp, dead: p.dead, act: p.actT > 0 ? p.act : null })) };
+    for (const p of room.players.values()) sendFast(p, snap);
   }
   function addPlayer(send, pid) {
     const id = room.nextId++;
     room.players.set(id, { id, send, pid, name: 'player', team: 'blue', hp: 100, dead: false, state: { p: [0, 0, 0], yaw: 0, pitch: 0, w: 'rifle' }, joined: false });
     return id;
+  }
+  // the guest whose PeerJS id is pid opened its fast channel
+  function setFast(pid, send) {
+    for (const p of room.players.values()) if (p.pid && p.pid === pid) { p.fast = send; return p.id; }
+    return null;
   }
   function leave(id) {
     const gone = room.players.get(id);
@@ -3706,6 +3756,9 @@ function createHostRoom(code, mode, type = 'elim') {
         break;
       case 'state': {
         if (room.phase === 'lobby' || me.dead || !Array.isArray(m.p)) return;
+        // the fast channel doesn't keep order: an older state than the one we have is dropped
+        if (Number.isFinite(+m.ts) && me.lastTs && +m.ts <= me.lastTs) return;
+        if (Number.isFinite(+m.ts)) me.lastTs = +m.ts;
         // when this state was taken, in host time: the sender's own clock (ts) plus the smallest delay seen so far
         // (creeping up slowly in case the route gets slower), so Wi-Fi jitter and slow frames don't bend the timing
         const hn = performance.now() / 1000;
@@ -3744,14 +3797,14 @@ function createHostRoom(code, mode, type = 'elim') {
     }
   }
   let last = performance.now();
-  const timer = setInterval(() => { const now = performance.now(); tick((now - last) / 1000); last = now; }, 50);
+  const timer = setInterval(() => { const now = performance.now(); tick((now - last) / 1000); last = now; }, 33);   // 30 Hz
   // summary for the 공방 list
   const info = () => {
     const h = room.players.get(room.host);
     return { t: 'info', code: room.code, mode: room.mode, type: room.type, phase: room.phase, host: h ? h.name : '?',
       players: [...room.players.values()].filter(p => p.joined).length, max: MODES[room.mode] * 2 };
   };
-  return { code, handle, addPlayer, leave, info, stop: () => clearInterval(timer) };
+  return { code, handle, addPlayer, setFast, leave, info, stop: () => clearInterval(timer) };
 }
 
 // ── transports ──
@@ -3769,7 +3822,7 @@ const PEER_RETRIES = 3;
 // School / PC-bang Wi-Fi often blocks direct WebRTC between PCs, and the free TURN relays are unreachable, so
 // then the game talks over a Supabase Realtime channel (plain HTTPS/WebSocket) instead: one channel per room,
 // `cc-room-CODE`. Each payload names its receiver ({to, from, b: [messages]}), batched every 50 ms.
-const RELAY_FLUSH = 50, RELAY_TIMEOUT = 15000, RELAY_AFTER = 4000;
+const RELAY_FLUSH = 33, RELAY_TIMEOUT = 15000, RELAY_AFTER = 4000;
 function relayLink(code, me, onBatch) {
   const ch = sb.channel('cc-room-' + code, { config: { broadcast: { self: false } } });
   const out = new Map();
@@ -3900,6 +3953,14 @@ function hostRoom(mode, type, attempt = 0, pub = false, tries = 0) {
         conn.on('open', () => { conn.send(room.info()); setTimeout(() => conn.close(), 500); });
         return;
       }
+      if (conn.metadata && conn.metadata.fast) {
+        conn.on('open', () => {
+          const id = room.setFast(conn.peer, msg => conn.open && conn.send(msg));
+          if (id === null) return conn.close();
+          conn.on('data', m => { if (m && m.t === 'state') room.handle(id, m); });
+        });
+        return;
+      }
       conn.on('open', () => {
         const id = room.addPlayer(msg => conn.open && conn.send(msg), conn.peer);
         conn.on('data', m => room.handle(id, m));
@@ -3951,6 +4012,14 @@ function joinRoom(code) {
       $('menu-error').textContent = '';
       net.send = msg => { if (conn.open) conn.send(msg); };
       net.send({ t: 'join', name: playerName(), room: code });
+      // movement on an unreliable, unordered channel (a lost packet is skipped, never waited for)
+      setTimeout(() => {
+        if (net.conn !== conn) return;
+        const fast = peer.connect(PEER_PREFIX + code, { reliable: false, serialization: 'json', metadata: { fast: true } });
+        net.fast = fast;
+        fast.on('data', m => { if (net.fast !== fast) return; try { onNetMessage(m); } catch (e) { console.error(e); } });
+        fast.on('close', () => { if (net.fast === fast) net.fast = null; });
+      }, 300);
     });
     conn.on('data', m => { if (net.conn !== conn) return; try { onNetMessage(m); } catch (e) { console.error(e); } });
     conn.on('close', () => {
@@ -3971,10 +4040,14 @@ function closeTransport() {
   if (relay) relay.close();
   const conn = net.conn; net.conn = null;
   if (conn) conn.close();
+  const fast = net.fast; net.fast = null; net.lastHt = 0;
+  if (fast) fast.close();
   if (net.peer) { net.peer.destroy(); net.peer = null; }
   net.send = null;
 }
 const netSend = msg => { if (net.send) net.send(msg); };
+// movement: the fast channel when it's open, otherwise the normal one
+const netSendFast = msg => { if (net.fast && net.fast.open) { try { net.fast.send(msg); return; } catch (e) { /* fall back */ } } netSend(msg); };
 
 // ── avatars for other players: the paper dummy holding a paper AK, with a floating name tag ──
 function makeNameTag(name, team) {
@@ -5819,6 +5892,8 @@ function onNetMessage(m) {
       net.timer = m.timer; net.phase = m.phase; net.bomb = m.bomb || null;
       // host clock → my clock: the smallest delay seen (creeping up slowly)
       const at = performance.now() / 1000, stamped = Number.isFinite(+m.ht) && +m.ht > 0;
+      if (stamped && net.lastHt && +m.ht <= net.lastHt) break;   // an older snapshot overtaken on the fast channel
+      if (stamped) net.lastHt = +m.ht;
       if (stamped) {
         const off = at - m.ht;
         net.hOff = net.hOff === undefined || off < net.hOff ? off : net.hOff + (off - net.hOff) * 0.01;
@@ -6157,11 +6232,11 @@ function updateNet(dt) {
   if (planted) $('round-timer').textContent = '💣 ' + $('round-timer').textContent;
   $('round-label').textContent = net.phase === 'prestart' ? `ROUND ${net.round} 준비` : `ROUND ${net.round}`;
 
-  // send my state at 20 Hz
+  // send my state at 30 Hz, on the fast channel
   net.sendT -= dt;
   if (net.sendT <= 0 && !player.dead) {
-    net.sendT = 0.05;
-    netSend({ t: 'state', ts: +(performance.now() / 1000).toFixed(3), p: player.position.toArray().map(v => +v.toFixed(3)), yaw: +cam.yaw.toFixed(1), pitch: +cam.pitch.toFixed(1),
+    net.sendT = 1 / 30;
+    netSendFast({ t: 'state', ts: +(performance.now() / 1000).toFixed(3), p: player.position.toArray().map(v => +v.toFixed(3)), yaw: +cam.yaw.toFixed(1), pitch: +cam.pitch.toFixed(1),
       w: loadout.current, ads: ads.held, act: net.act, cr: +player.crouch.toFixed(2) });
   }
 
@@ -6173,7 +6248,7 @@ function updateNet(dt) {
     // jitter buffer: draw just far enough in the past that the state after that moment has usually arrived:
     // one send gap plus how old states are when they get here (Wi-Fi, relay batching, slow frames). The rare
     // later one is covered by a short straight-on guess and the gentle follow below
-    const want = Math.min(0.22, Math.max(INTERP_DELAY, (r.gapAvg || 0.05) + (r.ageAvg ?? 0.05) + (r.ageDev || 0) * 1.2));
+    const want = Math.min(0.22, Math.max(INTERP_DELAY, (r.gapAvg || 0.033) + (r.ageAvg ?? 0.04) + (r.ageDev || 0) * 1.2));
     r.delay = r.delay ? r.delay + (want - r.delay) * Math.min(1, dt * 1.5) : want;
     const renderTime = now - r.delay;
     // a kill we predicted (see reportHit) that the host never confirmed: stand them back up
@@ -6417,17 +6492,20 @@ const TOUCH_DEFAULT = [   // x, y = centre in % of the screen, s = size in px
   { k: 'KeyV', x: 82, y: 8, s: 48 }, { k: 'Escape', x: 4, y: 7, s: 48 },
 ];
 let touchLayout = TOUCH_DEFAULT.map(b => ({ ...b }));
+const STICK_DEFAULT = { x: 12, y: 76, s: 130 };   // centre in % of the screen, size in px
+let touchStick = { ...STICK_DEFAULT };
+try { const st = JSON.parse(localStorage.getItem('touchStick') || 'null'); if (st && st.s) touchStick = st; } catch (e) { /* storage blocked */ }
 try { const saved = JSON.parse(localStorage.getItem('touchLayout') || 'null'); if (Array.isArray(saved)) touchLayout = saved.filter(b => TOUCH_ACTIONS[b.k]); } catch (e) { /* storage blocked */ }
-const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.stringify(touchLayout)); } catch (e) { /* storage blocked */ } };
+const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.stringify(touchLayout)); localStorage.setItem('touchStick', JSON.stringify(touchStick)); } catch (e) { /* storage blocked */ } };
 (() => {
   const css = document.createElement('style');
   css.textContent = `#mode-ask{position:fixed;inset:0;z-index:100000;background:rgba(10,12,16,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#fff;font:700 20px 'Segoe UI',sans-serif}
 #mode-ask div{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}#mode-ask button{font:700 20px 'Segoe UI',sans-serif;padding:16px 30px;border-radius:10px;border:2px solid #fff;background:#222;color:#fff}
 #touch-ui{position:fixed;inset:0;z-index:50;pointer-events:none;display:none}#touch-ui.on{display:block}#touch-ui.edit{z-index:100001;background:rgba(0,0,0,.35)}
 #touch-ui .tb{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.55);color:#fff;font:700 13px sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.1;user-select:none;-webkit-user-select:none;touch-action:none}
-#touch-ui .tb.down{background:rgba(255,255,255,.45)}#touch-ui.edit .tb{border-style:dashed}#touch-ui .tb.sel{border-color:#ffd23a;box-shadow:0 0 0 3px #ffd23a}
-#t-stick{position:absolute;left:28px;bottom:28px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.4);pointer-events:auto;touch-action:none}
-#t-knob{position:absolute;left:40px;top:40px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.5)}
+#touch-ui .tb.down{background:rgba(255,255,255,.45)}#t-stick.sel{border-color:#ffd23a!important;box-shadow:0 0 0 3px #ffd23a}#touch-ui.edit .tb{border-style:dashed}#touch-ui .tb.sel{border-color:#ffd23a;box-shadow:0 0 0 3px #ffd23a}
+#t-stick{position:absolute;transform:translate(-50%,-50%);border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.4);pointer-events:auto;touch-action:none}
+#t-knob{position:absolute;left:31%;top:31%;width:38%;height:38%;border-radius:50%;background:rgba(255,255,255,.5)}
 #t-look{position:absolute;right:0;top:0;width:55%;height:100%;pointer-events:auto;touch-action:none}#touch-ui.edit #t-look{display:none}
 #t-edit{display:none;position:absolute;left:50%;top:10px;transform:translateX(-50%);pointer-events:auto;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;background:#1b1e25;border:2px solid #555;border-radius:8px;padding:8px;color:#fff;font:600 14px sans-serif;max-width:92vw}
 #touch-ui.edit #t-edit{display:flex}#t-edit select,#t-edit button{font:600 14px sans-serif;padding:6px 10px;border-radius:6px;border:1px solid #666;background:#2a2e36;color:#fff}`;
@@ -6457,7 +6535,14 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
     else if (k === 'Escape') { if (down) { isLocked = false; $('settings-panel').classList.toggle('visible'); } }
     else key(k, down);
   };
+  const placeStick = () => {
+    const st = $('t-stick');
+    Object.assign(st.style, { left: touchStick.x + '%', top: touchStick.y + '%', width: touchStick.s + 'px', height: touchStick.s + 'px' });
+    st.classList.toggle('sel', touchUI.edit && touchUI.sel === 'stick');
+    st.style.borderStyle = touchUI.edit ? 'dashed' : '';
+  };
   const render = () => {
+    placeStick();
     const box = $('t-btns');
     box.innerHTML = '';
     touchLayout.forEach((b, i) => {
@@ -6471,6 +6556,7 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
         if (touchUI.edit) {
           touchUI.sel = i; drag = e.pointerId;
           for (const o of box.children) o.classList.toggle('sel', o === el);
+          placeStick();
           return;
         }
         el.classList.add('down'); SFX.unlock(); press(b.k, true);
@@ -6492,11 +6578,14 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   render();
   // editor toolbar
   $('t-add').onchange = e => { if (!e.target.value) return; touchLayout.push({ k: e.target.value, x: 50, y: 50, s: 60 }); touchUI.sel = touchLayout.length - 1; e.target.value = ''; saveTouchLayout(); render(); };
-  const resize = d => { const b = touchLayout[touchUI.sel]; if (!b) return; b.s = Math.min(130, Math.max(36, b.s + d)); saveTouchLayout(); render(); };
+  const resize = d => {
+    if (touchUI.sel === 'stick') { touchStick.s = Math.min(240, Math.max(80, touchStick.s + d * 2)); saveTouchLayout(); render(); return; }
+    const b = touchLayout[touchUI.sel]; if (!b) return; b.s = Math.min(130, Math.max(36, b.s + d)); saveTouchLayout(); render();
+  };
   $('t-big').onclick = () => resize(10);
   $('t-small').onclick = () => resize(-10);
-  $('t-del').onclick = () => { if (touchUI.sel == null) return; touchLayout.splice(touchUI.sel, 1); touchUI.sel = null; saveTouchLayout(); render(); };
-  $('t-reset').onclick = () => { touchLayout = TOUCH_DEFAULT.map(b => ({ ...b })); touchUI.sel = null; saveTouchLayout(); render(); };
+  $('t-del').onclick = () => { if (touchUI.sel == null || touchUI.sel === 'stick') return; touchLayout.splice(touchUI.sel, 1); touchUI.sel = null; saveTouchLayout(); render(); };
+  $('t-reset').onclick = () => { touchLayout = TOUCH_DEFAULT.map(b => ({ ...b })); touchStick = { ...STICK_DEFAULT }; touchUI.sel = null; saveTouchLayout(); render(); };
   $('t-done').onclick = () => { touchUI.edit = false; touchUI.sel = null; ui.classList.remove('edit'); render(); };
   // 설정 → 버튼 편집 (mobile only)
   const editBtn = document.createElement('button');
@@ -6522,17 +6611,31 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   const stick = $('t-stick'), knob = $('t-knob');
   const setMove = (x, y) => {
     keys.KeyW = y < -0.3; keys.KeyS = y > 0.3; keys.KeyA = x < -0.3; keys.KeyD = x > 0.3;
-    knob.style.transform = `translate(${x * 40}px, ${y * 40}px)`;
+    knob.style.transform = `translate(${x * touchStick.s * 0.3}px, ${y * touchStick.s * 0.3}px)`;
   };
-  stick.addEventListener('pointerdown', e => { e.preventDefault(); touchUI.stick = e.pointerId; capture(stick, e); });
+  let stickDrag = null;
+  stick.addEventListener('pointerdown', e => {
+    e.preventDefault(); capture(stick, e);
+    if (touchUI.edit) { touchUI.sel = 'stick'; stickDrag = e.pointerId; for (const o of $('t-btns').children) o.classList.remove('sel'); placeStick(); return; }
+    touchUI.stick = e.pointerId;
+  });
   stick.addEventListener('pointermove', e => {
+    if (touchUI.edit) {
+      if (stickDrag !== e.pointerId) return;
+      touchStick.x = Math.min(95, Math.max(5, e.clientX / innerWidth * 100)); touchStick.y = Math.min(95, Math.max(5, e.clientY / innerHeight * 100));
+      placeStick();
+      return;
+    }
     if (e.pointerId !== touchUI.stick) return;
     const r = stick.getBoundingClientRect();
     let x = (e.clientX - r.left - r.width / 2) / (r.width / 2), y = (e.clientY - r.top - r.height / 2) / (r.height / 2);
     const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
     setMove(x, y);
   });
-  const stickUp = e => { if (e.pointerId === touchUI.stick) { touchUI.stick = null; setMove(0, 0); } };
+  const stickUp = e => {
+    if (stickDrag === e.pointerId) { stickDrag = null; saveTouchLayout(); }
+    if (e.pointerId === touchUI.stick) { touchUI.stick = null; setMove(0, 0); }
+  };
   stick.addEventListener('pointerup', stickUp); stick.addEventListener('pointercancel', stickUp);
   // look: drag on the right half
   const look = $('t-look');
