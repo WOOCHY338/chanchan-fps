@@ -3279,23 +3279,23 @@ function update(dt) {
   // It never locks on, does nothing when you aren't touching the controls, and only counts what you can see.
   const steering = mouse.dx || mouse.dy || keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD;
   if (touchUI.on) {
-    // eased like a person's hand: the help fades in over ~0.15 s when an enemy comes near the crosshair and fades out
-    // when you stop steering; the drift speeds up gently, slows as it closes in (no snap, no overshoot) and is
+    // eased like a person's hand: the help fades in over ~0.4 s when an enemy comes near the crosshair and fades out
+    // over ~0.3 s when you stop steering; the drift speeds up gently, slows as it closes in (no snap, no overshoot) and is
     // capped at the same strength as before (35% slowdown, 9°/s)
     const t = steering && loadout.current !== 'knife' ? aimAssistTarget() : null;
     const aa = aimAssist;
-    aa.k += ((t ? 1 : 0) - aa.k) * Math.min(1, dt / (t ? 0.15 : 0.1));
+    aa.k += ((t ? 1 : 0) - aa.k) * Math.min(1, dt / (t ? 0.4 : 0.3));
     let wx = 0, wy = 0;
     if (t) {
       const near = 1 - t.off / AIM_ASSIST.cone;                        // 1 on the crosshair → 0 at the edge
       const cap = AIM_ASSIST.pull * (0.4 + 0.6 * near);
-      wx = Math.max(-cap, Math.min(cap, t.ax * 4)) * aa.k;            // proportional: eases out as it closes in
-      wy = Math.max(-cap * 0.6, Math.min(cap * 0.6, t.ay * 4)) * aa.k;
+      wx = Math.max(-cap, Math.min(cap, t.ax * 3)) * aa.k;            // proportional: eases out as it closes in
+      wy = Math.max(-cap * 0.6, Math.min(cap * 0.6, t.ay * 3)) * aa.k;
       const slow = 1 - AIM_ASSIST.slow * near * aa.k;
       lookYaw *= slow; lookPitch *= slow;
     }
-    aa.vx += (wx - aa.vx) * Math.min(1, dt / 0.08);                    // eases in: no sudden jerk
-    aa.vy += (wy - aa.vy) * Math.min(1, dt / 0.08);
+    aa.vx += (wx - aa.vx) * Math.min(1, dt / 0.22);                    // eases in: no sudden jerk
+    aa.vy += (wy - aa.vy) * Math.min(1, dt / 0.22);
     lookYaw -= aa.vx * dt;
     lookPitch += aa.vy * dt;
   }
