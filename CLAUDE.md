@@ -45,6 +45,7 @@
 - Windows 경로가 길어서 git은 `git -c core.longpaths=true ...`.
 
 ## 작업 기록 (최신이 위)
+- 2026-11-05: 도끼(`axeKnife`, 발로란트 네오프런티어 도끼 모양: 검은 머리 + 초록 네온 날) + 모션(`AXE_ANIMS`: 프라임 좌클릭 가로 베기 lightA/lightB, 우클릭 내려찍기 heavy, 스왑 draw, 자세히보기 inspect — 유튜브 L1BK0e2Zq00 자막 기준). 노이펙트 도끼 상자(`open_axe_case`, 50, 같은 확률, 스킨 `a_<id>`, 장착 `axFinish`/`applyAxFinish`).
 - 2026-11-05: 데스매치(`type: 'dm'`, `DM` 설정: 30킬/5분/1.5초 부활) — 개인전(시작 때 모두 red 팀으로 바꿔 적으로 보이게), 부활 위치는 `DM_POINTS`(아레나 빈 곳 격자) 중 살아있는 사람과 가장 먼 곳, 메시지 `respawn`/`dmscore`, 끝나면 `end.dm`에 킬 수. 산탄총 동그란 조준점(`#crosshair.round`).
 - 2026-11-05: 멀티 지연 줄임 — 게스트마다 두 번째 PeerJS 연결(`metadata.fast`, `reliable:false` = 순서 없음)로 state/snap 전송(`netSendFast`, 호스트 `setFast`/`sendFast`), 순서 뒤바뀐 건 버림(`me.lastTs`, `net.lastHt`). 전송·호스트 틱 20→30Hz, INTERP 0.05, 중계 플러시 33ms. 모바일: 시작할 때 PC/모바일 선택, 터치 버튼 편집(`touchLayout`, 조이스틱 `touchStick`), 조준/앉기 토글(`touchToggle`), 모바일 전용 조준 보정(`AIM_ASSIST`: 5° 안 감속 35%, 조작 중일 때만 초당 9° 끌림, 벽 뒤 X). 모바일은 포인터 락 안 씀(터치 노트북에서 터치가 캔버스로만 가서 조이스틱이 죽었음).
 - 2026-11-04: 멀티 부드럽게(전송 주기 20Hz 그대로): 보내는 쪽 시계(`ts`) → 방장이 플레이어별 '찍힌 시각' `at` + 스냅샷 `ht` 붙임 → 받는 쪽은 도착 시각이 아니라 찍힌 시각으로 타임라인 배치(`net.hOff` 최소 지연 필터), 같은 상태 중복은 버림, 지연 버퍼 = 전송 간격 + 도착 나이(`r.ageAvg/ageDev`), Catmull-Rom 곡선 보간 + 25ms 화면 보정(큰 순간이동은 즉시). 시뮬(나쁜 와이파이·30fps): 흔들림 182→14, 실제 지연 326→262ms. 시뮬 스크립트는 세션 스크래치에만 있음.

@@ -157,9 +157,9 @@ canvas { display: block; width: 100vw; height: 100vh; }
 .case-info { display: flex; flex-direction: column; gap: 6px; }
 .case-info b { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 24px; font-weight: 400; }
 .case-info span { font-size: 13px; opacity: 0.8; }
-#case-odds, #kcase-odds { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; font-size: 12px; align-items: center; margin-left: auto; }
-#case-odds div, #kcase-odds div { display: contents; }
-#case-odds i, #kcase-odds i { width: 10px; height: 10px; border-radius: 2px; }
+#case-odds, #kcase-odds, #acase-odds { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; font-size: 12px; align-items: center; margin-left: auto; }
+#case-odds div, #kcase-odds div, #acase-odds div { display: contents; }
+#case-odds i, #kcase-odds i, #acase-odds i { width: 10px; height: 10px; border-radius: 2px; }
 #shop-msg { color: #ffd447; font-weight: 700; min-height: 18px; font-size: 14px; }
 #quest-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 #quest-list .quest { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05);
@@ -245,6 +245,8 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 .shop-art { height: 110px; border-radius: 4px; background-color: #1b1e25; background-repeat: no-repeat; background-position: center; }
 .shop-art.basic { background-image: linear-gradient(160deg, transparent 47%, #c9ced6 47%, #c9ced6 53%, transparent 53%),
   linear-gradient(160deg, transparent 49%, #20222a 49%, #20222a 51%, transparent 51%); background-size: 70% 60%, 100% 100%; }
+.shop-art.axe { background: radial-gradient(circle at 50% 45%, #2d3138 0 30%, transparent 31%), linear-gradient(135deg, #1b2a22, #0d1410); position: relative; }
+.shop-art.axe::after { content: '🪓'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 46px; filter: hue-rotate(60deg) saturate(1.4); }
 .shop-art.karambit { background-image: radial-gradient(circle at 62% 30%, transparent 26px, #e2b850 27px, #e2b850 33px, transparent 34px),
   radial-gradient(circle at 38% 72%, transparent 9px, #b9bec7 10px, #b9bec7 13px, transparent 14px); }
 .shop-art.custom-art { background-image: linear-gradient(90deg, #ff4655, #ffd447, #4ade80, #3b82f6, #a855f7); opacity: 0.85;
@@ -407,6 +409,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   <label style="display:none">칼 <select id="knife-select" style="background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:12px">
     <option value="basic">기본칼</option>
     <option value="karambit">카람빗</option>
+    <option value="axe">도끼</option>
   </select></label>
   <label>자동 전체화면 (Ctrl+W 막기 · 1+0 나가기) <input type="checkbox" id="auto-fs" checked></label>
   <button class="btn ghost" id="btn-to-menu" style="margin-top:10px;width:100%;padding:7px">메뉴로 나가기</button>
@@ -535,6 +538,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <div class="shop-grid">
         <div class="shop-item inv-item" data-kind="knife" data-id="basic"><div class="shop-art basic"></div><b>기본칼</b><button class="btn equip">장착</button></div>
         <div class="shop-item inv-item" data-kind="knife" data-id="karambit"><div class="shop-art karambit"></div><b>카람빗</b><button class="btn equip">장착</button></div>
+        <div class="shop-item inv-item" data-kind="knife" data-id="axe"><div class="shop-art axe"></div><b>도끼</b><button class="btn equip">장착</button></div>
       </div>
       <div class="inv-label">화면 비율 <small>게임 중엔 ESC 설정에서도 바꿀 수 있어요</small></div>
       <div id="aspect-pick" style="display:flex;gap:8px">
@@ -575,6 +579,15 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
           <button class="btn accent" id="btn-open-kcase">열기 · 50 찬크레딧</button>
         </div>
         <div id="kcase-odds"></div>
+      </div>
+      <div class="case-card">
+        <div class="case-art"></div>
+        <div class="case-info">
+          <b>노이펙트 도끼 상자</b>
+          <span>도끼 스킨 6종 중 하나 · 블루젬은 0.3%</span>
+          <button class="btn accent" id="btn-open-acase">열기 · 50 찬크레딧</button>
+        </div>
+        <div id="acase-odds"></div>
       </div>
       <div id="shop-msg"></div>
       <div class="inv-label">오늘의 퀘스트 <small>하나에 20 찬크레딧 · 매일 자정(한국 시간) 초기화</small></div>
@@ -2332,12 +2345,52 @@ const KARAMBIT_RING = new THREE.Vector3(0, 0.078, 0);   // index-finger ring, th
   kbSpineMesh = new THREE.Mesh(sg, vmMat(0x5b626b));
   k.add(kbSpineMesh);
 }
+// ── 도끼: Valorant's Neo Frontier axe — dark gunmetal bearded head with a neon-green edge, a back spike, a wooden
+// handle with grey wraps and a gold cap. Local +y runs from the pommel to the head (like the knives), edge toward -x.
+const axeKnife = new THREE.Group();
+knifeModel.add(axeKnife);
+let axHeadMesh = null, axSpikeMesh = null;   // painted by the 도끼 skins (applyAxFinish)
+{
+  const a = axeKnife;
+  part(a, 0.026, 0.48, 0.026, 0x4a3324, 0, 0.13, 0);                                  // handle
+  for (const y of [-0.05, -0.01, 0.03]) part(a, 0.031, 0.013, 0.031, 0x5a5e66, 0, y, 0); // grip wraps
+  part(a, 0.034, 0.024, 0.034, 0xc9a24a, 0, -0.1, 0);                                   // gold cap
+  part(a, 0.032, 0.016, 0.032, 0xc9a24a, 0, 0.27, 0);                                   // gold collar under the head
+  const hs = new THREE.Shape();
+  hs.moveTo(0.016, 0.38);
+  hs.lineTo(-0.035, 0.37);
+  hs.quadraticCurveTo(-0.08, 0.385, -0.118, 0.42);    // top horn
+  hs.quadraticCurveTo(-0.15, 0.32, -0.125, 0.205);    // curved edge
+  hs.quadraticCurveTo(-0.075, 0.25, -0.03, 0.29);     // beard back to the neck
+  hs.lineTo(0.016, 0.295);
+  hs.lineTo(0.016, 0.38);
+  const hg = new THREE.ExtrudeGeometry(hs, { depth: 0.012, bevelEnabled: false });
+  hg.translate(0, 0, -0.006);
+  axHeadMesh = inked(hg, 0x2d3138);
+  a.add(axHeadMesh);
+  const ss = new THREE.Shape();
+  ss.moveTo(0.016, 0.3); ss.lineTo(0.08, 0.335); ss.lineTo(0.016, 0.365); ss.lineTo(0.016, 0.3);
+  const sg2 = new THREE.ExtrudeGeometry(ss, { depth: 0.01, bevelEnabled: false });
+  sg2.translate(0, 0, -0.005);
+  axSpikeMesh = inked(sg2, 0x2d3138);
+  a.add(axSpikeMesh);
+  // the neon edge and a green line inlaid on both faces of the head
+  const glow = new THREE.MeshBasicMaterial({ color: 0x45ff8a });
+  const edge = new THREE.QuadraticBezierCurve3(new THREE.Vector3(-0.118, 0.42, 0), new THREE.Vector3(-0.152, 0.32, 0), new THREE.Vector3(-0.125, 0.205, 0));
+  a.add(new THREE.Mesh(new THREE.TubeGeometry(edge, 16, 0.006, 6, false), glow));
+  for (const z of [0.0068, -0.0068]) {
+    const line = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.006, 0.002), glow);
+    line.position.set(-0.05, 0.33, z); line.rotation.z = -0.35;
+    a.add(line);
+  }
+}
 
 const KNIFE_SKINS = {
   basic: { name: '기본칼', group: basicKnife },
   // grip: extra twist in the fist so the claw curls up past the knuckles instead of hiding behind them
   karambit: { name: '카람빗', group: karambitKnife, pivot: KARAMBIT_RING,
     grip: new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 0, -0.4)) },
+  axe: { name: '도끼', group: axeKnife },
 };
 let knifeSkin = 'basic';
 try { const saved = localStorage.getItem('knifeSkin'); if (KNIFE_SKINS[saved]) knifeSkin = saved; } catch (e) { /* storage blocked */ }
@@ -2631,7 +2684,58 @@ const KARAMBIT_ANIMS = {
       { t: 1.3, at: csAt(0.66, 0.78), r: KR_IDLE.r },
       { t: 1.4, ...KR_IDLE }] },
 };
-for (const anim of Object.values(KARAMBIT_ANIMS)) {
+// 도끼 (Valorant 도끼모션 clip): idle low right with the head up-left; positions in CS screen fractions like the karambit
+const AX_IDLE = { at: csAt(0.7, 0.86), r: [-0.15, -0.2, 0.45] };
+const AXE_ANIMS = {
+  // 네오프런티어 스왑: comes up the right side upright, head first, then tips into the idle hold
+  draw: { dur: 0.75, ease: 'spline',
+    keys: [{ t: 0, at: csAt(0.86, 1.4), r: [0.5, -0.2, -0.1] },
+      { t: 0.25, at: csAt(0.8, 0.85), r: [0.2, -0.3, 0.0] },
+      { t: 0.45, at: csAt(0.76, 0.7), r: [-0.1, -0.3, 0.15] },
+      { t: 0.75, ...AX_IDLE }] },
+  // 프라임 좌클릭: cock high right, sweep flat across the screen right → left, follow through off the left edge
+  lightA: { dur: 0.85, hitAt: 0.2, nextAt: 0.5, ease: 'spline', range: KNIFE.lightRange + 0.2, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
+    streak: { from: [(0.92 - 0.5) / 0.5625 + 0.5, 0.48], to: [(0.12 - 0.5) / 0.5625 + 0.5, 0.56], d: 0.55, width: 0.04, color: 0x6fa8ff },
+    keys: [{ t: 0, ...AX_IDLE },
+      { t: 0.1, at: csAt(0.92, 0.55), r: [0.1, -0.6, -1.0] },
+      { t: 0.2, at: csAt(0.55, 0.52), r: [0.2, -0.3, 1.45] },
+      { t: 0.3, at: csAt(0.15, 0.62), r: [0.3, 0, 2.3] },
+      { t: 0.45, at: csAt(0.1, 1.2), r: [0.3, 0, 2.6] },
+      { t: 0.65, at: csAt(0.6, 1.3), r: [0, -0.2, 0.8] },
+      { t: 0.85, ...AX_IDLE }] },
+  // the backhand the other way (left → right) for a second light swing
+  lightB: { dur: 0.85, hitAt: 0.22, nextAt: 0.5, ease: 'spline', range: KNIFE.lightRange + 0.2, dmg: KNIFE.lightDmg, back: KNIFE.lightDmg,
+    streak: { from: [(0.15 - 0.5) / 0.5625 + 0.5, 0.6], to: [(0.9 - 0.5) / 0.5625 + 0.5, 0.5], d: 0.55, width: 0.04, color: 0x6fa8ff },
+    keys: [{ t: 0, ...AX_IDLE },
+      { t: 0.12, at: csAt(0.2, 0.62), r: [0.2, 0.3, 2.3] },
+      { t: 0.22, at: csAt(0.55, 0.55), r: [0.1, 0, 1.6] },
+      { t: 0.32, at: csAt(0.95, 0.52), r: [0, -0.4, -0.6] },
+      { t: 0.5, at: csAt(1.05, 1.15), r: [0.2, -0.3, -0.3] },
+      { t: 0.68, at: csAt(0.75, 1.25), r: [0, -0.2, 0.3] },
+      { t: 0.85, ...AX_IDLE }] },
+  // 우클릭: raise it high over the head (head tipped back), chop straight down through the centre, hold, recover
+  heavy: { dur: 1.2, hitAt: 0.46, ease: 'spline', range: KNIFE.heavyRange + 0.2, dmg: KNIFE.heavyDmg, back: KNIFE.backstabDmg,
+    streak: { from: [0.52, 0.12], to: [0.5, 0.72], d: 0.6, width: 0.05, color: 0x45ff8a },
+    keys: [{ t: 0, ...AX_IDLE },
+      { t: 0.18, at: csAt(0.66, 0.42, 0.5), r: [1.1, -0.2, 0.2] },
+      { t: 0.32, at: csAt(0.6, 0.25, 0.48), r: [1.5, -0.1, 0.1] },
+      { t: 0.46, at: csAt(0.53, 0.8, 0.55), r: [-1.2, -0.05, 0.05] },
+      { t: 0.62, at: csAt(0.53, 0.92, 0.55), r: [-1.35, -0.05, 0.05] },
+      { t: 0.9, at: csAt(0.66, 1.05), r: [-0.6, -0.2, 0.3] },
+      { t: 1.2, ...AX_IDLE }] },
+  // 네오프런티어 자세히보기: lift it in front, turn the face of the head to the camera, roll it flat to show the
+  // neon edge along the top, hold, and bring it back down
+  inspect: { dur: 4.4, ease: 'spline', isInspect: true,
+    keys: [{ t: 0, ...AX_IDLE },
+      { t: 0.45, at: csAt(0.66, 0.9, 0.45), r: [-0.7, -0.2, 0.35] },
+      { t: 1.0, at: csAt(0.64, 0.88, 0.44), r: [-0.8, 0.9, 0.4] },
+      { t: 1.8, at: csAt(0.64, 0.88, 0.44), r: [-0.8, 1.15, 0.45] },
+      { t: 2.4, at: csAt(0.6, 0.62, 0.4), r: [0.3, 0.4, 1.55] },
+      { t: 3.4, at: csAt(0.6, 0.62, 0.4), r: [0.35, 0.3, 1.6] },
+      { t: 3.9, at: csAt(0.68, 0.78), r: [0, -0.2, 0.6] },
+      { t: 4.4, ...AX_IDLE }] },
+};
+for (const anim of [...Object.values(KARAMBIT_ANIMS), ...Object.values(AXE_ANIMS)]) {
   // spline keys: shift each Euler angle by whole turns to sit within π of the previous key (same rotation),
   // so in-between frames take the short way round instead of spinning the wrist
   if (anim.ease === 'spline') {
@@ -2653,8 +2757,9 @@ for (const anim of Object.values(KARAMBIT_ANIMS)) {
   }
 }
 KR_IDLE.p = refPos(...KR_IDLE.at);
-const KNIFE_SKIN_ANIMS = { karambit: KARAMBIT_ANIMS };
-const KNIFE_SKIN_IDLE = { karambit: KR_IDLE };
+AX_IDLE.p = refPos(...AX_IDLE.at);
+const KNIFE_SKIN_ANIMS = { karambit: KARAMBIT_ANIMS, axe: AXE_ANIMS };
+const KNIFE_SKIN_IDLE = { karambit: KR_IDLE, axe: AX_IDLE };
 const knifeIdle = () => KNIFE_SKIN_IDLE[knifeSkin] || K_IDLE;
 // the selected knife's own version of an animation, else the shared one
 const knifeAnim = name => (KNIFE_SKIN_ANIMS[knifeSkin] && KNIFE_SKIN_ANIMS[knifeSkin][name]) || KNIFE_ANIMS[name];
@@ -5098,7 +5203,8 @@ function customChanged(g) {
 const shop = { owned: {}, playTimer: null };
 const ITEM_PRICE = { karambit: 50, custom: 100 };
 const ownsKnife = id => id === 'basic' || !!(account.profile && (account.profile.super || shop.owned['knife_' + id]
-  || (id === 'karambit' && Object.keys(shop.owned).some(k => k.startsWith('k_')))));
+  || (id === 'karambit' && Object.keys(shop.owned).some(k => k.startsWith('k_')))
+  || (id === 'axe' && Object.keys(shop.owned).some(k => k.startsWith('a_')))));
 const ownsItem = id => id === 'custom' ? ownsCustom() : ownsKnife(id);
 async function buyItem(item) {
   if (!sb || !account.profile) return shopToast('로그인해야 살 수 있어요');
@@ -5149,6 +5255,7 @@ async function refreshShop() {
   renderCredits(); renderQuests(); renderSkinInventory(); renderShop();
   checkKnifeOwnership();
   applyKbFinish();
+  applyAxFinish();
   schedulePlaytime();
 }
 // 하루 10분 접속: ask the server once the 10 minutes are up (it checks the time itself)
@@ -5200,7 +5307,7 @@ function renderQuests() {
 setInterval(() => { if (account.profile && !$('page-shop').classList.contains('hidden')) renderQuests(); }, 30000);
 
 // odds table under the case
-for (const [boxId, pre] of [['case-odds', ''], ['kcase-odds', '카람빗 | ']]) {
+for (const [boxId, pre] of [['case-odds', ''], ['kcase-odds', '카람빗 | '], ['acase-odds', '도끼 | ']]) {
   const box = $(boxId);
   for (const id of ['bluegem', 'redgem', 'greengreen', 'orange', 'navy', 'pink']) {
     const sk = AK_SKINS[id], r = RARITY[sk.rarity];
@@ -5235,13 +5342,14 @@ function skinTile(id) {
 }
 // knife = 노이펙트 카람빗 상자: same six finishes for the 카람빗, owned as 'k_<id>'
 async function openCase(knife = false) {
-  const btn = $(knife ? 'btn-open-kcase' : 'btn-open-case'), price = knife ? KB_CASE_PRICE : CASE_PRICE;
+  const axe = knife === 'axe';
+  const btn = $(axe ? 'btn-open-acase' : knife ? 'btn-open-kcase' : 'btn-open-case'), price = knife ? KB_CASE_PRICE : CASE_PRICE;
   if (!sb || !account.profile) return shopToast('로그인해야 상자를 열 수 있어요');
   if ((account.profile.credits || 0) < price) return shopToast('찬크레딧이 부족해요 · 퀘스트로 모아 보세요');
   btn.disabled = true;
-  const { data, error } = await sb.rpc(knife ? 'open_knife_case' : 'open_case');
+  const { data, error } = await sb.rpc(axe ? 'open_axe_case' : knife ? 'open_knife_case' : 'open_case');
   if (error || !data) { btn.disabled = false; return shopToast(error ? error.message : '열기 실패'); }
-  const won = knife ? data.skin.slice(KB_PREFIX.length) : data.skin;
+  const won = knife ? data.skin.slice(2) : data.skin;   // 'k_<id>' / 'a_<id>'
   account.profile.credits = data.credits;
   shop.owned[data.skin] = (shop.owned[data.skin] || 0) + 1;
   renderCredits();
@@ -5261,18 +5369,19 @@ async function openCase(knife = false) {
   setTimeout(() => {
     clearInterval(ticks);
     const sk = AK_SKINS[won], r = RARITY[sk.rarity];
-    $('case-result-name').textContent = (knife ? '카람빗 | ' : '') + sk.name;
+    $('case-result-name').textContent = (axe ? '도끼 | ' : knife ? '카람빗 | ' : '') + sk.name;
     $('case-result-name').style.color = r.color;
     $('case-result-rarity').textContent = r.label + ' 등급';
     $('case-result').classList.remove('hidden');
     sk.rarity === 'legend' || sk.rarity === 'epic' ? sfx.kill() : SFX.tone(1200, 0.12, 0.12, 0, 'triangle');
     btn.disabled = false;
-    $('case-equip').onclick = () => (knife ? equipKb(won) : equipSkin(won)).then(() => $('case-open').classList.add('hidden'));
+    $('case-equip').onclick = () => (axe ? equipAx(won) : knife ? equipKb(won) : equipSkin(won)).then(() => $('case-open').classList.add('hidden'));
     renderSkinInventory();
   }, 5400);
 }
 $('btn-open-case').onclick = () => openCase(false);
 $('btn-open-kcase').onclick = () => openCase(true);
+$('btn-open-acase').onclick = () => openCase('axe');
 
 // ── 카람빗 스킨: paint / Case Hardened on the claw blade; picked per device, only finishes you own ──
 const KB_PREFIX = 'k_', KB_CASE_PRICE = 50;
@@ -5308,6 +5417,41 @@ async function equipKb(id) {
   renderSkinInventory();
 }
 applyKbFinish();
+
+// ── 도끼 스킨 (노이펙트 도끼 상자): the same six finishes on the axe head, owned as 'a_<id>' ──
+const AX_PREFIX = 'a_';
+let axFinish = 'default';
+try { const f = localStorage.getItem('axFinish'); if (AK_SKINS[f] && !AK_SKINS[f].custom) axFinish = f; } catch (e) { /* storage blocked */ }
+const ownsAx = id => id === 'default' || !!(account.profile && (account.profile.super || shop.owned[AX_PREFIX + id]));
+const axMats = {};
+function applyAxFinish() {
+  if (!axHeadMesh) return;
+  if (!axMats.head) { axMats.head = axHeadMesh.material.clone(); axMats.spike = axSpikeMesh.material.clone(); }
+  const id = ownsAx(axFinish) ? axFinish : 'default', sk = AK_SKINS[id];
+  if (sk.gem) {
+    if (!axMats[id]) {
+      // the head's UVs are its shape coordinates (metres): stretch the gun-sized texture over the head
+      const t = (gemCache[id] || (gemCache[id] = gemTexture(GEM_LOOKS[id]))).clone();
+      t.needsUpdate = true;
+      t.repeat.set(4.4, 4.6); t.offset.set(0.67, -0.94);
+      axMats[id] = skinMat(t, true);
+    }
+    axHeadMesh.material = axSpikeMesh.material = axMats[id];
+    return;
+  }
+  axHeadMesh.material = axMats.head; axSpikeMesh.material = axMats.spike;
+  axMats.head.color.setHex(sk.paint || 0x2d3138);
+  axMats.spike.color.set(sk.paint ? new THREE.Color(sk.paint).offsetHSL(0, 0, -0.1) : 0x2d3138);
+}
+async function equipAx(id) {
+  if (!ownsAx(id)) return;
+  axFinish = id;
+  try { localStorage.setItem('axFinish', id); } catch (e) { /* storage blocked */ }
+  if (knifeSkin !== 'axe') { knifeSelect.value = 'axe'; knifeSelect.dispatchEvent(new Event('change')); }
+  applyAxFinish();
+  renderSkinInventory();
+}
+applyAxFinish();
 $('case-close').onclick = () => $('case-open').classList.add('hidden');
 $('btn-charge').onclick = () => shopToast('충전은 아직 없어요');
 
@@ -5353,6 +5497,21 @@ function renderSkinInventory() {
     btn.className = 'btn equip';
     btn.textContent = on ? '장착됨' : '장착';
     btn.onclick = () => equipKb(id);
+    item.append(skinTile(id), b, btn);
+    box.appendChild(item);
+  }
+  // 도끼 skins (from the 도끼 상자)
+  if (ownsKnife('axe')) for (const id of ['default', ...Object.keys(AK_SKINS).filter(k => k !== 'default' && !AK_SKINS[k].custom && ownsAx(k))]) {
+    const sk = AK_SKINS[id], r = RARITY[sk.rarity], on = knifeSkin === 'axe' && axFinish === id;
+    const item = document.createElement('div');
+    item.className = 'shop-item inv-item skin-item' + (on ? ' equipped' : '');
+    const b = document.createElement('b');
+    b.textContent = '도끼 | ' + sk.name + (shop.owned[AX_PREFIX + id] > 1 ? ` ×${shop.owned[AX_PREFIX + id]}` : '');
+    b.style.color = r.color;
+    const btn = document.createElement('button');
+    btn.className = 'btn equip';
+    btn.textContent = on ? '장착됨' : '장착';
+    btn.onclick = () => equipAx(id);
     item.append(skinTile(id), b, btn);
     box.appendChild(item);
   }

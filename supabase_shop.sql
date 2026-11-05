@@ -279,3 +279,28 @@ end $$;
 revoke execute on function public.open_knife_case() from public, anon;
 grant execute on function public.open_knife_case() to authenticated;
 notify pgrst, 'reload schema';
+
+-- ── 노이펙트 도끼 상자: 카람빗 상자와 같음 (50 찬크레딧, 같은 확률). 도끼 스킨은 'a_<스킨>' (하나라도 있으면 도끼 보유) ──
+create or replace function public.open_axe_case() returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  p public.profiles;
+  r double precision := random() * 100;
+  s text;
+begin
+  p := public._my_profile();
+  if p.credits < 50 then raise exception '찬크레딧이 부족해요'; end if;
+  s := case
+    when r < 0.3 then 'bluegem'
+    when r < 3 then 'redgem'
+    when r < 15 then 'greengreen'
+    when r < 43.333 then 'orange'
+    when r < 71.667 then 'navy'
+    else 'pink' end;
+  update public.profiles set credits = credits - 50 where id = p.id;
+  insert into public.skins_owned (user_id, skin) values (p.id, 'a_' || s);
+  return json_build_object('skin', 'a_' || s, 'credits', p.credits - 50);
+end $$;
+revoke execute on function public.open_axe_case() from public, anon;
+grant execute on function public.open_axe_case() to authenticated;
+notify pgrst, 'reload schema';
