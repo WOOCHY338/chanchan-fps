@@ -2140,12 +2140,18 @@ function updateGuns(dt) {
   }
   poseGuns(dt);
 }
-// right-click with the sniper: no scope → zoom 1 → zoom 2 → off
-document.addEventListener('mousedown', e => {
-  if (!isLocked || e.button !== 2 || loadout.current !== 'sniper' || loadout.phase !== 'idle') return;
+// zoom with the sniper (right-click, E on PC, the 줌 button on mobile): no scope → zoom 1 → zoom 2 → off
+function cycleScope() {
+  if (!isLocked || loadout.current !== 'sniper' || loadout.phase !== 'idle') return;
   if (sr.reloading > 0 || sr.bolt > 0 || sr.boltDelay > 0) return;
   sr.zoom = (sr.zoom + 1) % 3;
   SFX.play('click', { vol: 0.25, rate: 1.6 });
+}
+document.addEventListener('mousedown', e => { if (e.button === 2) cycleScope(); });
+document.addEventListener('keydown', e => {
+  if (e.code !== 'KeyE' || e.repeat || touchUI.on) return;
+  if (net.mode === 'online' && net.type === 'bomb' && bombAction()) return;   // E is the bomb there
+  cycleScope();
 });
 document.addEventListener('keydown', e => { if (e.code === 'KeyR' && isLocked) startGunReload(); });
 
@@ -6439,7 +6445,7 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ } };
   const press = (k, down) => {
     if (k === 'fire') firing = down;
-    else if (k === 'zoom') ads.touch = down;
+    else if (k === 'zoom') { ads.touch = down; if (down) cycleScope(); }
     else if (k === 'weapon') { if (down) { const c = loadout.current === 'knife' ? 'Digit1' : 'Digit3'; key(c, true); key(c, false); } }
     else if (k === 'Escape') { if (down) { isLocked = false; $('settings-panel').classList.toggle('visible'); } }
     else key(k, down);
@@ -6455,7 +6461,11 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
       let drag = null;
       el.addEventListener('pointerdown', e => {
         e.preventDefault(); e.stopPropagation(); capture(el, e);
-        if (touchUI.edit) { touchUI.sel = i; drag = e.pointerId; render(); return; }
+        if (touchUI.edit) {
+          touchUI.sel = i; drag = e.pointerId;
+          for (const o of box.children) o.classList.toggle('sel', o === el);
+          return;
+        }
         el.classList.add('down'); SFX.unlock(); press(b.k, true);
       });
       el.addEventListener('pointermove', e => {
