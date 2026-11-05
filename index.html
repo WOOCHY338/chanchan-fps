@@ -6401,6 +6401,9 @@ const SAVED_SETTINGS = ['sens-slider', 'dist-slider', 'fov-slider', 'invert-y', 
 // buttons the player can place, resize, add and remove (버튼 편집 in 설정), saved on this device.
 // No pointer lock on touch screens, so "locked" = playing.
 const touchUI = { on: false, stick: null, look: null, edit: false, sel: null };
+// 조준 / 앉기: hold the button (default) or tap once to turn on, tap again to turn off; kept on this device
+const touchToggle = { zoom: false, crouch: false };
+try { Object.assign(touchToggle, JSON.parse(localStorage.getItem('touchToggle') || '{}')); } catch (e) { /* storage blocked */ }
 // every action a button can do: game keys are sent as real key events, so they work exactly like the keyboard
 const TOUCH_ACTIONS = {
   fire: '발사', zoom: '줌', Space: '점프', KeyC: '앉기', KeyR: '장전', weapon: '무기 바꾸기', KeyE: 'E 폭탄',
@@ -6445,7 +6448,11 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ } };
   const press = (k, down) => {
     if (k === 'fire') firing = down;
-    else if (k === 'zoom') { ads.touch = down; if (down) cycleScope(); }
+    else if (k === 'zoom') {
+      if (down) cycleScope();   // the sniper scope steps on every press either way
+      if (!touchToggle.zoom) ads.touch = down; else if (down) ads.touch = !ads.touch;
+    }
+    else if (k === 'KeyC' && touchToggle.crouch) { if (down) key('KeyC', !keys.KeyC); }
     else if (k === 'weapon') { if (down) { const c = loadout.current === 'knife' ? 'Digit1' : 'Digit3'; key(c, true); key(c, false); } }
     else if (k === 'Escape') { if (down) { isLocked = false; $('settings-panel').classList.toggle('visible'); } }
     else key(k, down);
@@ -6497,6 +6504,19 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   editBtn.textContent = '📱 모바일 버튼 편집';
   editBtn.onclick = () => { touchUI.edit = true; ui.classList.add('edit', 'on'); $('settings-panel').classList.remove('visible'); render(); };
   $('btn-to-menu').before(editBtn);
+  const toggles = document.createElement('div');
+  toggles.style.display = 'none';
+  toggles.innerHTML = '<label>조준 토글 (한 번 누르면 켜짐) <input type="checkbox" id="tt-zoom"></label><label>앉기 토글 (한 번 누르면 켜짐) <input type="checkbox" id="tt-crouch"></label>';
+  editBtn.before(toggles);
+  for (const k of ['zoom', 'crouch']) {
+    const c = $('tt-' + k);
+    c.checked = touchToggle[k];
+    c.onchange = () => {
+      touchToggle[k] = c.checked;
+      if (k === 'zoom') ads.touch = false; else key('KeyC', false);   // don't leave it stuck on
+      try { localStorage.setItem('touchToggle', JSON.stringify(touchToggle)); } catch (e) { /* storage blocked */ }
+    };
+  }
 
   // movement stick → WASD (preventDefault: no fake mouse clicks, which would fire the gun)
   const stick = $('t-stick'), knob = $('t-knob');
@@ -6528,7 +6548,7 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   look.addEventListener('pointerup', lookUp); look.addEventListener('pointercancel', lookUp);
   // touch screens also send fake mouse clicks after a tap: never let those shoot in mobile mode
   for (const ev of ['mousedown', 'mouseup', 'click']) document.addEventListener(ev, e => {
-    if (touchUI.on && e.target && e.target.closest && e.target.closest('#touch-ui')) e.stopImmediatePropagation();
+    if (touchUI.on && e.target && e.target.closest && e.target.closest('#touch-ui') && !e.target.closest('#t-edit')) e.stopImmediatePropagation();
   }, true);
 
   // the question, every start
@@ -6539,6 +6559,7 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   ask.querySelectorAll('button').forEach(b => b.onclick = () => {
     touchUI.on = b.dataset.m === 'mobile';
     editBtn.style.display = touchUI.on ? 'block' : 'none';
+    toggles.style.display = touchUI.on ? 'block' : 'none';
     ask.remove();
     SFX.unlock();
     if (touchUI.on) {
