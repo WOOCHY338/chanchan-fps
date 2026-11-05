@@ -3398,7 +3398,7 @@ function update(dt) {
   // slows down a little and, only while you're already turning or moving, drifts gently onto them.
   // It never locks on, does nothing when you aren't touching the controls, and only counts what you can see.
   const steering = mouse.dx || mouse.dy || keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD;
-  if (touchUI.on) {
+  if (touchUI.on && touchToggle.assist) {
     // eased like a person's hand: the help fades in over ~0.15 s when an enemy comes near the crosshair and fades out
     // when you stop steering; the drift speeds up gently, slows as it closes in (no snap, no overshoot) and is
     // capped at the same strength as before (35% slowdown, 9°/s)
@@ -6756,7 +6756,7 @@ const SAVED_SETTINGS = ['sens-slider', 'dist-slider', 'fov-slider', 'invert-y', 
 // No pointer lock on touch screens, so "locked" = playing.
 const touchUI = { on: false, stick: null, look: null, edit: false, sel: null };
 // 조준 / 앉기: hold the button (default) or tap once to turn on, tap again to turn off; kept on this device
-const touchToggle = { zoom: false, crouch: false };
+const touchToggle = { zoom: false, crouch: false, assist: true };   // assist = 조준 보정 (on unless turned off)
 try { Object.assign(touchToggle, JSON.parse(localStorage.getItem('touchToggle') || '{}')); } catch (e) { /* storage blocked */ }
 // every action a button can do: game keys are sent as real key events, so they work exactly like the keyboard
 const TOUCH_ACTIONS = {
@@ -6874,14 +6874,14 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
   $('btn-to-menu').before(editBtn);
   const toggles = document.createElement('div');
   toggles.style.display = 'none';
-  toggles.innerHTML = '<label>조준 토글 (한 번 누르면 켜짐) <input type="checkbox" id="tt-zoom"></label><label>앉기 토글 (한 번 누르면 켜짐) <input type="checkbox" id="tt-crouch"></label>';
+  toggles.innerHTML = '<label>조준 보정 (에임 어시스트) <input type="checkbox" id="tt-assist"></label><label>조준 토글 (한 번 누르면 켜짐) <input type="checkbox" id="tt-zoom"></label><label>앉기 토글 (한 번 누르면 켜짐) <input type="checkbox" id="tt-crouch"></label>';
   editBtn.before(toggles);
-  for (const k of ['zoom', 'crouch']) {
+  for (const k of ['assist', 'zoom', 'crouch']) {
     const c = $('tt-' + k);
     c.checked = touchToggle[k];
     c.onchange = () => {
       touchToggle[k] = c.checked;
-      if (k === 'zoom') ads.touch = false; else key('KeyC', false);   // don't leave it stuck on
+      if (k === 'zoom') ads.touch = false; else if (k === 'crouch') key('KeyC', false);   // don't leave it stuck on
       try { localStorage.setItem('touchToggle', JSON.stringify(touchToggle)); } catch (e) { /* storage blocked */ }
     };
   }
