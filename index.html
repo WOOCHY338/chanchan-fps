@@ -6248,7 +6248,7 @@ function updateNet(dt) {
     // jitter buffer: draw just far enough in the past that the state after that moment has usually arrived:
     // one send gap plus how old states are when they get here (Wi-Fi, relay batching, slow frames). The rare
     // later one is covered by a short straight-on guess and the gentle follow below
-    const want = Math.min(0.22, Math.max(INTERP_DELAY, (r.gapAvg || 0.033) + (r.ageAvg ?? 0.04) + (r.ageDev || 0) * 1.2));
+    const want = Math.min(0.22, Math.max(1 / 30, (r.gapAvg || 0.033) + (r.ageAvg ?? 0.04) + (r.ageDev || 0) * 0.6));
     r.delay = r.delay ? r.delay + (want - r.delay) * Math.min(1, dt * 1.5) : want;
     const renderTime = now - r.delay;
     // a kill we predicted (see reportHit) that the host never confirmed: stand them back up
@@ -6271,10 +6271,10 @@ function updateNet(dt) {
         return (2 * k3 - 3 * k2 + 1) * p0 + (k3 - 2 * k2 + k) * m0 + (-2 * k3 + 3 * k2) * p1 + (k3 - k2) * m1;
       };
       const tx = along(sa.p[0], s0.p[0], s1.p[0], sb.p[0]), ty = along(sa.p[1], s0.p[1], s1.p[1], sb.p[1]), tz = along(sa.p[2], s0.p[2], s1.p[2], sb.p[2]);
-      // follow that point closely (~25 ms lag): hides the small step when a late state lands and the curve
+      // follow that point closely (~8 ms lag; tuned against a simulated ADAD strafe over jittery, lossy Wi-Fi): hides the small step when a late state lands and the curve
       // shifts, but snaps on a real jump (respawn, teleport)
       const jump = Math.hypot(tx - d.position.x, ty - d.position.y, tz - d.position.z) > 3 || !u.placed;
-      const f = jump ? 1 : 1 - Math.exp(-dt / 0.025);
+      const f = jump ? 1 : 1 - Math.exp(-dt / 0.008);
       const px = d.position.x + (tx - d.position.x) * f, py = d.position.y + (ty - d.position.y) * f, pz = d.position.z + (tz - d.position.z) * f;
       u.placed = true;
       const moved = Math.hypot(px - d.position.x, pz - d.position.z) / Math.max(dt, 1e-3);
@@ -6285,7 +6285,7 @@ function updateNet(dt) {
       let dr = targetYaw - d.rotation.y;
       dr = Math.atan2(Math.sin(dr), Math.cos(dr));
       d.rotation.y += dr * (jump ? 1 : 1 - Math.exp(-dt / 0.03));
-      u.moving = moved > 1;
+      u.moving = moved > (u.moving ? 0.6 : 1.2);   // a little hysteresis so the walk cycle doesn't flicker
       u.pitch = s0.pitch + (s1.pitch - s0.pitch) * k;
       u.weapon = s1.w;
       u.crouch = s0.cr + (s1.cr - s0.cr) * k;
