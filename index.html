@@ -2349,7 +2349,7 @@ const KARAMBIT_RING = new THREE.Vector3(0, 0.078, 0);   // index-finger ring, th
 // handle with grey wraps and a gold cap. Local +y runs from the pommel to the head (like the knives), edge toward -x.
 const axeKnife = new THREE.Group();
 knifeModel.add(axeKnife);
-axeKnife.rotation.y = Math.PI;   // edge toward the screen centre (left), like the clip, so it leads the right-to-left cut
+axeKnife.rotation.y = Math.PI / 2;   // gripped with the edge facing forward, away from the player (into the screen)
 let axHeadMesh = null, axSpikeMesh = null;   // painted by the 도끼 skins (applyAxFinish)
 {
   const a = axeKnife;
