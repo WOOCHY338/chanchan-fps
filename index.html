@@ -4260,7 +4260,7 @@ $('btn-quick').onclick = async () => {
   if (open) joinRoom(open.code);
   else { net.quickNote = '열린 일반방이 없어서 새 일반방을 열었어요 · 누가 들어올 때까지 기다려 주세요'; hostRoom(ROOM_MODE, lastType, 0, true); }
 };
-refreshRooms();
+setTimeout(refreshRooms, 0);   // after the whole script ran (sb, the Supabase client, is declared further down)
 $('btn-create-elim').onclick = () => create('elim');
 $('btn-create-bomb').onclick = () => create('bomb');
 $('btn-join').onclick = () => {
