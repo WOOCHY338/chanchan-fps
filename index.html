@@ -228,6 +228,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-family: inherit; transition: transform 0.12s, border-color 0.12s; }
 .mode-card:hover { transform: translateY(-2px); border-color: #fff; }
 .mode-card.elim { background: linear-gradient(135deg, #2f5fae, #1b2c4d); }
+.mode-card.dm { background: linear-gradient(135deg, #8a4fd0, #2e1a4d); }
 .mode-card.bomb { background: linear-gradient(135deg, #b8323d, #4a1820); }
 .mode-card b { font-family: 'Black Han Sans', 'Segoe UI', sans-serif; font-size: 26px; font-weight: 400; }
 .mode-card span { font-size: 13px; opacity: 0.8; }
@@ -293,7 +294,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   padding: 6px 10px; font-size: 14px; }
 #room-list .room .name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #room-list .room .tag { font-size: 12px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
-#room-list .room .tag.elim { background: #6f9be6; color: #10203a; } #room-list .room .tag.bomb { background: #e07a72; color: #3a1210; }
+#room-list .room .tag.elim { background: #6f9be6; color: #10203a; } #room-list .room .tag.dm { background: #b58ae6; color: #24103a; } #room-list .room .tag.bomb { background: #e07a72; color: #3a1210; }
 #room-list .room .btn { padding: 4px 12px; font-size: 13px; box-shadow: 2px 2px 0 #1a1410; }
 #room-list .empty { opacity: 0.55; font-size: 14px; text-align: center; padding: 6px; }
 #lobby-code { font-size: 46px; font-weight: 800; letter-spacing: 8px; font-family: monospace; }
@@ -468,6 +469,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
       <div class="mode-cards">
         <button class="mode-card elim" id="btn-create-elim"><b>섬멸전</b><i>방 만들기</i></button>
         <button class="mode-card bomb" id="btn-create-bomb"><b>폭탄전</b><i>방 만들기</i></button>
+        <button class="mode-card dm" id="btn-create-dm"><b>데스매치</b><i>방 만들기</i></button>
       </div>
       <label class="sub check"><input type="checkbox" id="public-check" checked> 일반방으로 열기 (누구나 목록에서 들어올 수 있어요)</label>
       <div class="row left">
@@ -634,6 +636,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
   <div class="row" id="lobby-modes">
     <button class="btn blue" data-type="elim">섬멸전</button>
     <button class="btn red" data-type="bomb">폭탄전</button>
+    <button class="btn" data-type="dm" style="background:#8a4fd0">데스매치</button>
   </div>
   <div id="lobby-code">----</div>
   <div class="sub">친구에게 이 코드를 알려주세요</div>
@@ -3251,7 +3254,7 @@ function aimAssistTarget() {
   let best = null;
   for (const d of dummies) {
     const u = d.userData;
-    if (!d.visible || u.dead || (net.mode === 'online' && u.team === net.myTeam)) continue;
+    if (!d.visible || u.dead || (net.mode === 'online' && net.type !== 'dm' && u.team === net.myTeam)) continue;
     const crouch = u.crouch || 0;
     for (const h of [1.68 - 0.5 * crouch, 1.15 - 0.3 * crouch]) {     // head, then chest: whichever is closer to the crosshair
       _aaV.set(d.position.x, d.position.y + h, d.position.z).applyMatrix4(camera.matrixWorldInverse);
@@ -3578,10 +3581,34 @@ const inSite = (x, z) => (BOMB_SITES.find(st => Math.abs(x - st.x) <= st.hw + 0.
 const makeRoomCode = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
 
 // host-side room: one room per host browser. clients: id -> send(msg)
+// 데스매치 (like Valorant's): everyone for themselves, back in 1.5 s after dying at the spawn farthest from
+// the others, first to 30 kills or the most kills after 5 minutes wins
+const DM = { goal: 30, time: 300, respawn: 1.5 };
+// spawn spots on the arena: a grid over the walkable area, away from every box
+const DM_POINTS = (() => {
+  const { bound: [bx, bz], boxes } = MAPS.arena, pts = [];
+  for (let x = -bx * 0.85; x <= bx * 0.85; x += 5) for (let z = -bz * 0.85; z <= bz * 0.85; z += 5) {
+    if (boxes.some(([cx, , cz, sx, , sz]) => Math.abs(x - cx) < sx / 2 + 1.2 && Math.abs(z - cz) < sz / 2 + 1.2)) continue;
+    pts.push([+x.toFixed(1), +z.toFixed(1)]);
+  }
+  return pts;
+})();
 function createHostRoom(code, mode, type = 'elim') {
   const room = { code, mode, type, players: new Map(), host: 1, phase: 'lobby', round: 0, score: { blue: 0, red: 0 }, timer: 0, nextId: 1,
     attack: null, bomb: null };
   const isBomb = () => room.type === 'bomb';   // the host can switch modes in the lobby
+  const isDM = () => room.type === 'dm';
+  // the spot farthest from everyone alive (facing the middle)
+  const dmSpawn = self => {
+    const others = [...room.players.values()].filter(o => o !== self && !o.dead);
+    let best = DM_POINTS[0], bestD = -1;
+    for (const pt of DM_POINTS) {
+      const d = others.length ? Math.min(...others.map(o => Math.hypot(o.state.p[0] - pt[0], o.state.p[2] - pt[1]))) : Math.random();
+      if (d > bestD) { bestD = d; best = pt; }
+    }
+    return [best[0], best[1], Math.atan2(-best[0], -best[1]) * 180 / Math.PI];
+  };
+  const dmScores = () => Object.fromEntries([...room.players.values()].map(p => [p.id, p.kills || 0]));
   const sendTo = (p, msg) => { try { p.send(msg); } catch (e) { /* peer gone */ } };
   // snapshots go over the guest's fast channel when it has one: a lost packet is simply skipped (the next one is
   // 33 ms away) instead of holding up everything behind it like the reliable channel does on Wi-Fi
@@ -3596,7 +3623,16 @@ function createHostRoom(code, mode, type = 'elim') {
     // bomb mode: blue attacks on odd rounds, red on even rounds
     room.attack = isBomb() ? (room.round % 2 ? 'blue' : 'red') : null;
     const spawns = {};
-    for (const team of ['blue', 'red']) {
+    if (isDM()) {
+      const pts = [...DM_POINTS].sort(() => Math.random() - 0.5);
+      [...room.players.values()].forEach((p, i) => {
+        const pt = pts[i % pts.length], sp = [pt[0], pt[1], Math.atan2(-pt[0], -pt[1]) * 180 / Math.PI];
+        p.hp = 100; p.dead = false; p.act = null; p.actT = 0; p.kills = 0; p.respawnT = 0;
+        p.state = { p: [sp[0], 0, sp[1]], yaw: sp[2], pitch: 0, w: 'rifle' };
+        spawns[p.id] = sp;
+      });
+    }
+    for (const team of isDM() ? [] : ['blue', 'red']) {
       const list = isBomb() ? BOMB_SPAWNS[team === room.attack ? 'attack' : 'defense'] : SPAWNS[team];
       teamOf(team).forEach((p, i) => {
         const s = list[i % list.length];
@@ -3627,12 +3663,12 @@ function createHostRoom(code, mode, type = 'elim') {
     broadcast({ t: 'round', phase: 'post', round: room.round, score: room.score, winner, reason, timer: room.timer });
   }
   function endMatch(winner) {
-    broadcast({ t: 'end', winner, score: room.score });
+    broadcast({ t: 'end', winner, score: room.score, dm: isDM() ? dmScores() : undefined });
     room.phase = 'lobby';
     broadcast(lobbyInfo());
   }
   function checkRoundOver() {
-    if (room.phase !== 'live') return;
+    if (room.phase !== 'live' || isDM()) return;
     const b = teamOf('blue').filter(p => !p.dead).length, r = teamOf('red').filter(p => !p.dead).length;
     if (isBomb()) {
       const alive = { blue: b, red: r };
@@ -3678,8 +3714,23 @@ function createHostRoom(code, mode, type = 'elim') {
   function tick(dt) {
     if (room.phase === 'lobby') return;
     room.timer -= dt;
-    if (room.phase === 'prestart' && room.timer <= 0) {
-      room.phase = 'live'; room.timer = isBomb() ? BOMB.roundTime : RULES.roundTime;
+    if (room.phase === 'live' && isDM()) {
+      // back in after a moment, away from everyone; time's up: the most kills wins
+      for (const p of room.players.values()) {
+        if (!p.dead || !(p.respawnT > 0)) continue;
+        p.respawnT -= dt;
+        if (p.respawnT > 0) continue;
+        const sp = dmSpawn(p);
+        p.dead = false; p.hp = 100; p.act = null;
+        p.state = { ...p.state, p: [sp[0], 0, sp[1]], yaw: sp[2] };
+        broadcast({ t: 'respawn', id: p.id, s: sp });
+      }
+      if (room.timer <= 0) {
+        const top = [...room.players.values()].sort((a, b) => (b.kills || 0) - (a.kills || 0))[0];
+        return endMatch(top ? top.id : null);
+      }
+    } else if (room.phase === 'prestart' && room.timer <= 0) {
+      room.phase = 'live'; room.timer = isDM() ? DM.time : isBomb() ? BOMB.roundTime : RULES.roundTime;
       broadcast({ t: 'round', phase: 'live', round: room.round, score: room.score, timer: room.timer });
     } else if (room.phase === 'live' && isBomb()) {
       tickBomb(dt);
@@ -3719,7 +3770,10 @@ function createHostRoom(code, mode, type = 'elim') {
     if (gone && room.phase !== 'lobby') dropBomb(gone);
     if (!room.players.delete(id)) return;
     broadcast({ t: 'left', id });
-    if (room.phase !== 'lobby') {
+    if (room.phase !== 'lobby' && isDM()) {
+      if (room.players.size < 2) return endMatch(room.players.size ? [...room.players.keys()][0] : null);
+      broadcast({ t: 'dmscore', k: dmScores() });
+    } else if (room.phase !== 'lobby') {
       const b = teamOf('blue').length, r = teamOf('red').length;
       if (b === 0 || r === 0) return endMatch(b > 0 ? 'blue' : 'red');
       checkRoundOver();
@@ -3758,7 +3812,7 @@ function createHostRoom(code, mode, type = 'elim') {
         broadcast({ t: 'talk', id, on: !!m.on, all: !!m.all }, id);
         break;
       case 'mode':     // host switches 섬멸전/폭탄전 before starting
-        if (id !== room.host || room.phase !== 'lobby' || (m.type !== 'elim' && m.type !== 'bomb')) return;
+        if (id !== room.host || room.phase !== 'lobby' || !['elim', 'bomb', 'dm'].includes(m.type)) return;
         room.type = m.type;
         broadcast(lobbyInfo());
         break;
@@ -3769,7 +3823,11 @@ function createHostRoom(code, mode, type = 'elim') {
         break;
       case 'start':
         if (id !== room.host || room.phase !== 'lobby') return;
-        if (!teamOf('blue').length || !teamOf('red').length) return sendTo(me, { t: 'error', msg: '양 팀에 최소 1명씩 있어야 해요' });
+        if (isDM()) {
+          if (room.players.size < 2) return sendTo(me, { t: 'error', msg: '데스매치는 2명 이상 있어야 해요' });
+          for (const p of room.players.values()) p.team = 'red';   // everyone is an enemy (and looks like one)
+          broadcast(lobbyInfo());
+        } else if (!teamOf('blue').length || !teamOf('red').length) return sendTo(me, { t: 'error', msg: '양 팀에 최소 1명씩 있어야 해요' });
         room.score = { blue: 0, red: 0 }; room.round = 0;
         startRound();
         break;
@@ -3800,7 +3858,7 @@ function createHostRoom(code, mode, type = 'elim') {
         break;
       case 'hit': {
         const target = room.players.get(m.target);
-        if (room.phase !== 'live' || me.dead || !target || target.dead || target.team === me.team) return;
+        if (room.phase !== 'live' || me.dead || !target || target.dead || target === me || (target.team === me.team && !isDM())) return;
         const dmg = Math.max(0, Math.min(RULES.maxHit, Number(m.dmg) || 0));
         target.hp -= dmg;
         broadcast({ t: 'hp', id: target.id, hp: Math.max(0, target.hp), by: id, head: !!m.head });
@@ -3809,7 +3867,12 @@ function createHostRoom(code, mode, type = 'elim') {
           target.act = null; target.actT = 0;
           dropBomb(target);
           broadcast({ t: 'kill', killer: id, victim: target.id, head: !!m.head, w: NET_WEAPONS.includes(m.w) ? m.w : 'rifle' });
-          checkRoundOver();
+          if (isDM()) {
+            me.kills = (me.kills || 0) + 1;
+            target.respawnT = DM.respawn;
+            broadcast({ t: 'dmscore', k: dmScores() });
+            if (me.kills >= DM.goal) endMatch(me.id);
+          } else checkRoundOver();
         }
         break;
       }
@@ -4238,7 +4301,7 @@ $('auto-fs').onchange = e => {
   if (!autoFullscreen) leaveGameFullscreen();
 };
 let lastType = 'elim';
-try { lastType = localStorage.getItem('lastType') === 'bomb' ? 'bomb' : 'elim'; } catch (e) { /* storage blocked */ }
+try { const t = localStorage.getItem('lastType'); lastType = t === 'bomb' || t === 'dm' ? t : 'elim'; } catch (e) { /* storage blocked */ }
 const create = type => {
   SFX.unlock(); voiceCtx(); closeTransport(); $('menu-error').textContent = '';
   lastType = type;
@@ -4327,7 +4390,7 @@ function renderRoomList(rooms) {
     row.className = 'room';
     const tag = document.createElement('span');
     tag.className = 'tag ' + r.type;
-    tag.textContent = r.type === 'bomb' ? '폭탄전' : '섬멸전';
+    tag.textContent = r.type === 'bomb' ? '폭탄전' : r.type === 'dm' ? '데스매치' : '섬멸전';
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = r.host + '의 방';
@@ -4364,6 +4427,7 @@ $('btn-quick').onclick = async () => {
 };
 setTimeout(refreshRooms, 0);   // after the whole script ran (sb, the Supabase client, is declared further down)
 $('btn-create-elim').onclick = () => create('elim');
+$('btn-create-dm').onclick = () => create('dm');
 $('btn-create-bomb').onclick = () => create('bomb');
 $('btn-join').onclick = () => {
   SFX.unlock();
@@ -5625,7 +5689,7 @@ function renderLobby() {
   $('lobby-code').textContent = net.room;
   $('lobby-modes').style.display = net.ranked ? 'none' : '';
   const per = MODES[net.roomMode] || 5;
-  $('lobby-mode').textContent = (net.ranked ? `경쟁전 ${per}대${per} · ` : '') + (net.roomType === 'bomb' ? '폭탄전' : '섬멸전') + ` · ${net.players.length}/${per * 2}명`
+  $('lobby-mode').textContent = (net.ranked ? `경쟁전 ${per}대${per} · ` : '') + (net.roomType === 'bomb' ? '폭탄전' : net.roomType === 'dm' ? '데스매치 (개인전)' : '섬멸전') + ` · ${net.players.length}/${per * 2}명`
     + (/^PB\d\d$/.test(net.room) ? ' · 일반' : '');
   for (const team of ['blue', 'red']) {
     $('lobby-' + team).innerHTML = '';
@@ -5892,13 +5956,13 @@ function onNetMessage(m) {
       net.phase = m.phase; net.round = m.round; net.score = m.score; net.timer = m.timer;
       if (m.phase === 'prestart') {
         if (net.mode !== 'online') startOnlineMatch();
-        net.type = m.type || 'elim'; net.attack = m.attack || null; net.bomb = null; net.act = null;
+        net.type = m.type || 'elim'; net.attack = m.attack || null; net.bomb = null; net.act = null; net.dmKills = {};
         boomT = 0; boomBall.visible = false;
         if (m.map && m.map !== currentMap) loadMap(m.map);   // before spawning: ground height depends on the map
         if (m.spawns && m.spawns[net.id]) spawnLocal(m.spawns[net.id]);
         for (const r of net.remotes.values()) { r.dead = false; r.hp = 100; r.buf.length = 0; r.avatar.userData.dead = false; r.avatar.rotation.x = 0; }
-        const role = net.type !== 'bomb' ? '' : net.myTeam === net.attack ? ' · 공격 — 폭탄을 A나 B에 설치하세요' : ' · 수비 — A, B 사이트를 지키세요';
-        showBanner(`ROUND ${m.round}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${role}</small>`, 2.5);
+        const role = net.type === 'dm' ? ` · 데스매치 — 먼저 ${DM.goal}킬` : net.type !== 'bomb' ? '' : net.myTeam === net.attack ? ' · 공격 — 폭탄을 A나 B에 설치하세요' : ' · 수비 — A, B 사이트를 지키세요';
+        showBanner(net.type === 'dm' ? `데스매치<small>${role.slice(3)} · 죽으면 바로 부활</small>` : `ROUND ${m.round}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${role}</small>`, 2.5);
       } else if (m.phase === 'live') {
         showBanner('시작!', 0.8);
       } else if (m.phase === 'post') {
@@ -5907,6 +5971,19 @@ function onNetMessage(m) {
         showBanner(`${txt}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}${why}</small>`, 2.8);
       }
       break;
+    case 'dmscore':
+      net.dmKills = m.k || {};
+      break;
+    case 'respawn': {
+      if (m.id === net.id) { spawnLocal(m.s); break; }
+      const r = net.remotes.get(m.id);
+      if (!r) break;
+      const u = r.avatar.userData;
+      r.dead = false; r.hp = 100; r.buf.length = 0;
+      u.dead = false; u.deadT = 0; u.predT = 0; u.placed = false; r.avatar.rotation.x = 0;
+      r.avatar.position.set(m.s[0], getGroundHeight(m.s[0], m.s[1]), m.s[1]);
+      break;
+    }
     case 'snap': {
       net.timer = m.timer; net.phase = m.phase; net.bomb = m.bomb || null;
       // host clock → my clock: the smallest delay seen (creeping up slowly)
@@ -6001,9 +6078,12 @@ function onNetMessage(m) {
       if (net.remotes.has(m.id)) { addFeed(`${teamSpan(m.id)} 나감`); scene.remove(net.remotes.get(m.id).avatar); net.remotes.delete(m.id); syncRemotes(); }
       break;
     case 'end': {
-      const win = m.winner === net.myTeam;
+      const win = m.dm ? m.winner === net.id : m.winner === net.myTeam;
       if (net.ranked) reportRanked(win);
-      showBanner(`${win ? '승리!' : '패배'}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}</small>`, 4);
+      if (m.dm) {
+        const who = (net.players.find(p => p.id === m.winner) || {}).name || '?';
+        showBanner(`${win ? '1등!' : `${who} 1등`}<small>내 킬 ${m.dm[net.id] || 0} · ${who} ${m.dm[m.winner] || 0}킬</small>`, 4);
+      } else showBanner(`${win ? '승리!' : '패배'}<small>${TEAM_KO.blue} ${m.score.blue} : ${m.score.red} ${TEAM_KO.red}</small>`, 4);
       setTimeout(() => {
         if (net.mode !== 'online') return;
         if (net.ranked) { leaveOnline(); return; }   // ranked: the match is over, back to the main screen
@@ -6031,7 +6111,7 @@ function reportShot(origin, end) {
 // returns true if the hit is handled online (server applies damage) — local HP is not touched
 function reportHit(dummy, dmg, head, w) {
   if (net.mode !== 'online' || !dummy.userData.remoteId) return false;
-  if (dummy.userData.team !== net.myTeam && net.phase === 'live') {
+  if ((net.type === 'dm' || dummy.userData.team !== net.myTeam) && net.phase === 'live') {
     netSend({ t: 'hit', target: dummy.userData.remoteId, dmg, head, w });
     showHitmarker(head);
     // lethal on our screen: drop them now like the practice range (the host confirms; if not, they stand back up)
@@ -6249,7 +6329,10 @@ function updateNet(dt) {
   const planted = net.type === 'bomb' && net.bomb && net.bomb.s === 'planted' && net.phase === 'live';
   $('round-timer').parentElement.classList.toggle('planted', planted);
   if (planted) $('round-timer').textContent = '💣 ' + $('round-timer').textContent;
-  $('round-label').textContent = net.phase === 'prestart' ? `ROUND ${net.round} 준비` : `ROUND ${net.round}`;
+  if (net.type === 'dm') {
+    const k = net.dmKills || {}, top = Math.max(0, ...Object.values(k));
+    $('round-label').textContent = `데스매치 · 내 킬 ${k[net.id] || 0} · 1등 ${top} / ${DM.goal}`;
+  } else $('round-label').textContent = net.phase === 'prestart' ? `ROUND ${net.round} 준비` : `ROUND ${net.round}`;
 
   // send my state at 30 Hz, on the fast channel
   net.sendT -= dt;
