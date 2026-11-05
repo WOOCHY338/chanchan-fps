@@ -3236,6 +3236,7 @@ function cameraCollisionCheck(from, to, maxDist) {
 // mobile aim assist: within `cone` degrees of the crosshair, look speed drops by up to `slow`, and the view drifts
 // toward the target at up to `pull` degrees a second (only while the player is steering)
 const AIM_ASSIST = { cone: 5, slow: 0.35, pull: 9 };
+const aimAssist = { k: 0, vx: 0, vy: 0 };   // how engaged it is (0..1) and the eased drift speed (°/s)
 const _aaV = new THREE.Vector3(), _aaRay = new THREE.Raycaster();
 function aimAssistTarget() {
   camera.updateMatrixWorld();
@@ -3277,16 +3278,26 @@ function update(dt) {
   // slows down a little and, only while you're already turning or moving, drifts gently onto them.
   // It never locks on, does nothing when you aren't touching the controls, and only counts what you can see.
   const steering = mouse.dx || mouse.dy || keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD;
-  if (touchUI.on && steering && loadout.current !== 'knife') {
-    const t = aimAssistTarget();
+  if (touchUI.on) {
+    // eased like a person's hand: the help fades in over ~0.15 s when an enemy comes near the crosshair and fades out
+    // when you stop steering; the drift speeds up gently, slows as it closes in (no snap, no overshoot) and is
+    // capped at the same strength as before (35% slowdown, 9°/s)
+    const t = steering && loadout.current !== 'knife' ? aimAssistTarget() : null;
+    const aa = aimAssist;
+    aa.k += ((t ? 1 : 0) - aa.k) * Math.min(1, dt / (t ? 0.15 : 0.1));
+    let wx = 0, wy = 0;
     if (t) {
-      const near = 1 - t.off / AIM_ASSIST.cone;                       // 1 on the crosshair → 0 at the edge
-      const slow = 1 - AIM_ASSIST.slow * near;
+      const near = 1 - t.off / AIM_ASSIST.cone;                        // 1 on the crosshair → 0 at the edge
+      const cap = AIM_ASSIST.pull * (0.4 + 0.6 * near);
+      wx = Math.max(-cap, Math.min(cap, t.ax * 4)) * aa.k;            // proportional: eases out as it closes in
+      wy = Math.max(-cap * 0.6, Math.min(cap * 0.6, t.ay * 4)) * aa.k;
+      const slow = 1 - AIM_ASSIST.slow * near * aa.k;
       lookYaw *= slow; lookPitch *= slow;
-      const pull = AIM_ASSIST.pull * dt * (0.4 + 0.6 * near);          // degrees this frame, at most
-      lookYaw += -Math.max(-pull, Math.min(pull, t.ax));
-      lookPitch += Math.max(-pull * 0.6, Math.min(pull * 0.6, t.ay));
     }
+    aa.vx += (wx - aa.vx) * Math.min(1, dt / 0.08);                    // eases in: no sudden jerk
+    aa.vy += (wy - aa.vy) * Math.min(1, dt / 0.08);
+    lookYaw -= aa.vx * dt;
+    lookPitch += aa.vy * dt;
   }
   cam.yaw += lookYaw;
   cam.pitch += lookPitch;
