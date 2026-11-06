@@ -391,6 +391,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
     <option value="black">4:3 블랙바</option>
   </select></label>
   <label>마우스 상하 반전 <input type="checkbox" id="invert-y"></label>
+  <label>왼손 모드 (총·칼을 왼쪽에 들기) <input type="checkbox" id="left-hand"></label>
   <div class="set-head">그래픽</div>
   <label>그래픽 품질 <select id="gfx-quality" style="background:#222;color:#fff;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:12px">
     <option value="auto">자동 (60프레임 방어)</option>
@@ -1836,7 +1837,7 @@ function ejectShell(fromObj, color, r, len, vel) {
   fromObj.getWorldPosition(s.position);
   vmCamera.worldToLocal(s.position);
   s.rotation.set(Math.random() * 3, Math.random() * 3, 0);
-  s.userData = { v: new THREE.Vector3(...vel), spin: new THREE.Vector3(8 + Math.random() * 8, 6, 3), life: 0.7 };
+  s.userData = { v: new THREE.Vector3(vel[0] * (leftHand ? -1 : 1), vel[1], vel[2]), spin: new THREE.Vector3(8 + Math.random() * 8, 6, 3), life: 0.7 };
   vmDebris.push(s);
 }
 
@@ -5611,7 +5612,8 @@ function drawCustomPreview() {
   const show = (o, v) => { if (o.visible !== v) { changed.push([o, o.visible]); o.visible = v; } };
   const chain = new Set();
   for (let o = root; o; o = o.parent) { chain.add(o); show(o, true); }
-  for (const o of vmCamera.children) if (!chain.has(o)) show(o, false);
+  for (const o of [...vmCamera.children, ...vmMirror.children]) if (!chain.has(o)) show(o, false);
+  const mirrorWas = vmMirror.scale.x; vmMirror.scale.x = 1;   // the editor always shows the gun as it is (not mirrored)
   const mine = new Set(parts.map(p => p.mesh));
   root.traverse(o => { if (o.isMesh && !mine.has(o) && !(o.parent && mine.has(o.parent))) show(o, false); });
   root.updateMatrixWorld(true);
@@ -5640,6 +5642,7 @@ function drawCustomPreview() {
   R.setScissorTest(false); R.setViewport(0, 0, size.x, size.y); R.setClearColor(clear, clearA);
   ce.light.intensity = 0;
   for (const [o, v] of changed) o.visible = v;
+  vmMirror.scale.x = mirrorWas;
   if (g === 'rifle') applyAkSkin(akSkin); else applySniperSkin();
   // the picked sticker: outline, ■ size handle, ● turn handle
   const st = custom[g].stickers[ce.sel];
@@ -6960,6 +6963,22 @@ const saveTouchLayout = () => { try { localStorage.setItem('touchLayout', JSON.s
     if (touchUI.on) { isLocked = show; if (show) startScreen.classList.add('hidden'); }
   }, 200);
 })();
+
+// ── 왼손 모드 (like CS2's left hand): everything held in first person sits in one group that is mirrored left-right.
+// three.js flips the face winding for a negative scale, so the models still draw correctly.
+let leftHand = false;
+try { leftHand = localStorage.getItem('leftHand') === '1'; } catch (e) { /* storage blocked */ }
+const vmMirror = new THREE.Group();
+for (const o of [...vmCamera.children]) vmMirror.add(o);
+vmCamera.add(vmMirror);
+const applyHand = () => { vmMirror.scale.x = leftHand ? -1 : 1; };
+applyHand();
+$('left-hand').checked = leftHand;
+$('left-hand').onchange = e => {
+  leftHand = e.target.checked;
+  try { localStorage.setItem('leftHand', leftHand ? '1' : '0'); } catch (err) { /* storage blocked */ }
+  applyHand();
+};
 
 animate();
 </script>
