@@ -45,6 +45,7 @@
 - Windows 경로가 길어서 git은 `git -c core.longpaths=true ...`.
 
 ## 작업 기록 (최신이 위)
+- 2026-11-07: 마이크 처음부터 켜짐(첫 클릭/키 입력 때 자동 `toggleMic`, 말하기는 여전히 V/U). 총(주무기) 선택은 온라인에서 라운드 시작 전 5초(`RULES.prestart` 3→5)에만: 그때 선택 메뉴 자동으로 열리고 카운트다운, 라운드 중엔 B 막힘(`canSwapGun`, 데스매치는 죽어 있을 때도 가능).
 - 2026-11-05: 배치고사 3판(`profiles.placement`/`placement_wins`, `report_result`에서 처리: 0승 스톤2 · 1승 브론즈2 · 2승 실버2 · 3승 골드2, 배치 중 점수 변동 없음). 처음 SQL 실행 때 스톤(division ≤ 1)만 배치 3판, 새 계정도 배치부터. **아직 Supabase에 SQL 안 넣음** (supabase_shop.sql 끝의 배치고사 + open_axe_case).
 - 2026-11-05: 도끼(`axeKnife`, 발로란트 네오프런티어 도끼 모양: 검은 머리 + 초록 네온 날) + 모션(`AXE_ANIMS`: 프라임 좌클릭 가로 베기 lightA/lightB, 우클릭 내려찍기 heavy, 스왑 draw, 자세히보기 inspect — 유튜브 L1BK0e2Zq00 자막 기준). 노이펙트 도끼 상자(`open_axe_case`, 50, 같은 확률, 스킨 `a_<id>`, 장착 `axFinish`/`applyAxFinish`).
 - 2026-11-05: 데스매치(`type: 'dm'`, `DM` 설정: 30킬/5분/1.5초 부활) — 개인전(시작 때 모두 red 팀으로 바꿔 적으로 보이게), 부활 위치는 `DM_POINTS`(아레나 빈 곳 격자) 중 살아있는 사람과 가장 먼 곳, 메시지 `respawn`/`dmscore`, 끝나면 `end.dm`에 킬 수. 산탄총 동그란 조준점(`#crosshair.round`).

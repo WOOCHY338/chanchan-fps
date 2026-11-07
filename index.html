@@ -680,7 +680,7 @@ body.menu-open #ammo, body.menu-open #hud, body.menu-open #crosshair, body.menu-
 <div id="voice-hud"></div>
 <div id="scope"></div>
 <div id="gun-select">
-  <div class="gs-title">주무기 선택 <small>B 닫기</small></div>
+  <div class="gs-title">주무기 선택 <small id="gs-hint">B 닫기</small></div>
   <button class="gun-opt" data-gun="rifle"><b>1</b>A-K<span>자동 · 35발</span></button>
   <button class="gun-opt" data-gun="shotgun"><b>2</b>더블배럴<span>산탄 · 2발 · 우클릭 두 발 동시</span></button>
   <button class="gun-opt" data-gun="sniper"><b>3</b>저격총<span>볼트액션 · 5발 · 우클릭 스코프</span></button>
@@ -2224,13 +2224,18 @@ function poseGuns(dt) {
 }
 
 // ── weapon select (B): 1 A-K · 2 더블배럴 · 3 저격총 ──
-const gunSel = { open: false };
+// online the gun is picked only in the 5 seconds before a round starts (the menu opens by itself then), never
+// during the round; 데스매치 also lets you pick while dead. Practice and menus: any time.
+const gunSel = { open: false, warnT: 0 };
+const canSwapGun = () => net.mode !== 'online' || net.phase === 'prestart' || (net.type === 'dm' && player.dead);
 function setGunSel(open) {
   gunSel.open = open;
+  document.getElementById('gs-hint').textContent = 'B 닫기';   // the round countdown (updateNet) takes over in the pick window
   document.getElementById('gun-select').classList.toggle('show', open);
   for (const b of document.querySelectorAll('#gun-select .gun-opt')) b.classList.toggle('on', b.dataset.gun === primaryGun);
 }
 function choosePrimary(w) {
+  if (!canSwapGun()) return;
   primaryGun = w;
   try { localStorage.setItem('primaryGun', w); } catch (e) { /* storage blocked */ }
   setGunSel(false);
@@ -2238,7 +2243,11 @@ function choosePrimary(w) {
 }
 document.addEventListener('keydown', e => {
   if (!isLocked || !inGame()) return;
-  if (e.code === 'KeyB') { setGunSel(!gunSel.open); return; }
+  if (e.code === 'KeyB') {
+    if (canSwapGun()) setGunSel(!gunSel.open);
+    else if (performance.now() - gunSel.warnT > 1500) { gunSel.warnT = performance.now(); showBanner('라운드 중엔 총을 못 바꿔요<small>다음 라운드 시작 전 5초 동안 바꿀 수 있어요</small>', 1.2); }
+    return;
+  }
   if (!gunSel.open) return;
   const pick = { Digit1: 'rifle', Digit2: 'shotgun', Digit3: 'sniper' }[e.code];
   if (pick) { e.gunSelKey = true; choosePrimary(pick); }
@@ -3672,7 +3681,7 @@ function showOnly(el) {
 // ── P2P: the room creator's browser IS the server (same rules/messages as server.js); everyone else connects
 // to it directly with WebRTC. PeerJS's free public broker is only used so players can find each other by code.
 const PEER_PREFIX = 'chanchan-fps-v1-';
-const RULES = { winScore: 5, prestart: 3, roundTime: 100, post: 3, maxHit: 260 };
+const RULES = { winScore: 5, prestart: 5, roundTime: 100, post: 3, maxHit: 260 };
 const NET_WEAPONS = ['rifle', 'shotgun', 'sniper', 'knife'];
 const MODES = { '1v1': 1, '2v2': 2, '5v5': 5 };   // players per team (normal rooms are 5v5-sized; ranked picks one)
 const ROOM_MODE = '5v5';
@@ -6052,6 +6061,16 @@ async function toggleMic() {
   for (const b of document.querySelectorAll('.mic-btn')) b.textContent = voice.mic ? '🎤 마이크 켜짐 · V 팀 / U 전체 (끄기)' : '🎤 마이크 켜기';
 }
 for (const b of document.querySelectorAll('.mic-btn')) b.onclick = toggleMic;
+// the mic is on from the start: browsers only allow audio after the first click or key, so turn it on right then
+// (once per visit; turning it off with the button sticks until the page is opened again). Talking still needs V / U.
+(() => {
+  const first = e => {
+    removeEventListener('pointerdown', first, true); removeEventListener('keydown', first, true);
+    if (!voice.mic && !(e.target && e.target.closest && e.target.closest('.mic-btn'))) toggleMic();
+  };
+  addEventListener('pointerdown', first, true);
+  addEventListener('keydown', first, true);
+})();
 const TALK_KEYS = { KeyV: 'team', KeyU: 'all' };
 document.addEventListener('keydown', e => {
   if (TALK_KEYS[e.code] && !e.repeat && !chat.open && document.activeElement !== chatInput) setPtt(TALK_KEYS[e.code]);
@@ -6136,6 +6155,7 @@ function onNetMessage(m) {
       net.phase = m.phase; net.round = m.round; net.score = m.score; net.timer = m.timer;
       if (m.phase === 'prestart') {
         if (net.mode !== 'online') startOnlineMatch();
+        setGunSel(true);   // the 5 seconds to pick a gun
         net.type = m.type || 'elim'; net.attack = m.attack || null; net.bomb = null; net.act = null; net.dmKills = {};
         boomT = 0; boomBall.visible = false;
         if (m.map && m.map !== currentMap) loadMap(m.map);   // before spawning: ground height depends on the map
@@ -6501,6 +6521,11 @@ function updateNet(dt) {
     if (tr.t <= 0) { scene.remove(tr.line); tr.line.geometry.dispose(); tracers.splice(i, 1); }
   }
   if (net.mode !== 'online') return;
+  // gun pick window: count it down on the menu, close it when the round goes live
+  if (gunSel.open) {
+    if (!canSwapGun()) setGunSel(false);
+    else $('gs-hint').textContent = net.phase === 'prestart' ? `${Math.max(0, Math.ceil(net.timer))}초 안에 1·2·3` : 'B 닫기';
+  }
 
   $('score-blue').textContent = net.score.blue;
   $('score-red').textContent = net.score.red;
